@@ -81,6 +81,35 @@ git push origin v0.1.0
 
 流水线会生成 zipped `.app`、`.dmg` 和 `.pkg` 三类产物。
 
+### Gatekeeper 与 Apple 公证
+
+如果 release 只是 ad-hoc 签名，下载后 macOS 会提示：
+
+```text
+Apple 无法验证“CodexIsland”是否包含可能危害 Mac 安全或泄漏隐私的恶意软件。
+```
+
+这是 Gatekeeper 拦截，不是 App 自身崩溃。当前未公证包的临时打开方式：
+
+```bash
+xattr -dr com.apple.quarantine /Applications/CodexIsland.app
+```
+
+也可以在 Finder 中 Control+点击 App，选择“打开”。只对你信任的构建这样做。
+
+要让公开下载的 DMG/PKG 双击即被 macOS 信任，需要 Apple Developer Program 的 Developer ID 证书，并在 GitHub Actions 中配置这些 repository secrets：
+
+- `MACOS_CERTIFICATE_BASE64`：包含 Developer ID Application，最好也包含 Developer ID Installer 证书和私钥的 `.p12`，做 base64 后填入。
+- `MACOS_CERTIFICATE_PASSWORD`：`.p12` 密码。
+- `KEYCHAIN_PASSWORD`：CI 临时 keychain 密码。
+- `MACOS_APP_SIGN_IDENTITY`：例如 `Developer ID Application: Your Name (TEAMID)`。
+- `MACOS_INSTALLER_SIGN_IDENTITY`：例如 `Developer ID Installer: Your Name (TEAMID)`。
+- `APPLE_ID`：用于公证的 Apple ID。
+- `APPLE_TEAM_ID`：Apple Developer Team ID。
+- `APPLE_APP_SPECIFIC_PASSWORD`：Apple ID app-specific password。
+
+配置完成后，release workflow 会自动签名 App、提交 Apple 公证、staple 公证票据，并生成签名/公证后的 DMG 和 PKG。
+
 ## 当前状态
 
-项目处于早期开发阶段。当前 release 默认使用 ad-hoc signing，适合本地安装和试用；后续可通过 GitHub Actions secrets 接入 Developer ID 签名和 notarization。
+项目处于早期开发阶段。未配置上述 Apple secrets 时，release 默认使用 ad-hoc signing，只适合本地安装和试用。
