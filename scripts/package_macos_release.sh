@@ -9,6 +9,7 @@ DIST_DIR="$ROOT_DIR/dist"
 STAGE_DIR="$DIST_DIR/stage"
 APP_NAME="CodexIsland"
 STAGED_APP="$STAGE_DIR/$APP_NAME.app"
+APPLICATIONS_LINK="$STAGE_DIR/Applications"
 APP_SIGN_IDENTITY="${MACOS_APP_SIGN_IDENTITY:-}"
 INSTALLER_SIGN_IDENTITY="${MACOS_INSTALLER_SIGN_IDENTITY:-}"
 APPLE_ID="${APPLE_ID:-}"
@@ -92,6 +93,9 @@ DMG_PATH="$DIST_DIR/$APP_NAME-$VERSION-macOS.dmg"
 PKG_PATH="$DIST_DIR/$APP_NAME-$VERSION-macOS.pkg"
 
 ditto -c -k --keepParent "$STAGED_APP" "$ZIP_PATH"
+
+# Show the standard drag-to-Applications target when users open the DMG.
+ln -s /Applications "$APPLICATIONS_LINK"
 
 hdiutil create \
   -volname "Codex Island" \
