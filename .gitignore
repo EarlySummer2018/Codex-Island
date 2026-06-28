@@ -1,0 +1,12 @@
+.DS_Store
+.build/
+build/
+dist/
+DerivedData/
+codex-watcher/target/
+*.xcuserstate
+*.xcuserdata/
+xcuserdata/
+*.moved-aside
+*.swp
+*.log

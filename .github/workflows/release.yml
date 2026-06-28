@@ -1,0 +1,62 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  macos-release:
+    name: Build macOS installers
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Test Rust sidecar
+        run: cargo test
+        working-directory: codex-watcher
+
+      - name: Build Release app
+        run: |
+          xcodebuild \
+            -project CodexIsland.xcodeproj \
+            -scheme CodexIsland \
+            -configuration Release \
+            -destination 'generic/platform=macOS' \
+            CODE_SIGN_IDENTITY=- \
+            CODE_SIGNING_ALLOWED=YES \
+            SYMROOT="$PWD/build" \
+            build
+
+      - name: Package macOS artifacts
+        run: |
+          chmod +x scripts/package_macos_release.sh
+          VERSION="${GITHUB_REF_NAME:-manual}" scripts/package_macos_release.sh build/Release/CodexIsland.app
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: CodexIsland-macOS
+          path: dist/*
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

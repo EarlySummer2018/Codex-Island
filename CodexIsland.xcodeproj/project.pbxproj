@@ -1,0 +1,523 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0847C3B87853D55880CF4F94 /* ActivateCodexButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BAFC2C1DA9D8AB76EBFFE85 /* ActivateCodexButton.swift */; };
+		0F86677435AC727A8968FBA0 /* GlobalTokenUsageSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 309295CE0642154DFC0B924B /* GlobalTokenUsageSnapshot.swift */; };
+		0F92B5693559E70C8296CF7B /* AwaitingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A34D7CA0C1EDD0128470BFB2 /* AwaitingView.swift */; };
+		10337B3BDB97A0B2F30B57CC /* TokenInfoRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = CED6D9ABE61D9BC7325F14A2 /* TokenInfoRow.swift */; };
+		1718100CBC49BDD67BC3E22A /* TokenPill.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B00A7CF54718DD6687EA90C /* TokenPill.swift */; };
+		194E4A6FCA8B194BA0D3FC5D /* PulseRingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92A6C8FD901CFD058A98456A /* PulseRingView.swift */; };
+		199186B1C23BC8BC901981ED /* EventBus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82F6E74CEA999AB8E61CEBAD /* EventBus.swift */; };
+		1A11DCA4AC06CE7F0ED7A300 /* AppSettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAAF6D4D5443F680AD5D0966 /* AppSettingsStore.swift */; };
+		1B7E9FC1635084C3DAFE946C /* NotchIslandView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40F09BDCAF87E77C31CC3C6D /* NotchIslandView.swift */; };
+		2B97B381F7AD96657C76F52B /* PlaceholderPetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11B7923A5E7C65BBB8FF1515 /* PlaceholderPetView.swift */; };
+		2E18AB5DA799D8C9A24A3F5A /* TokenCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F51C7F32B043843E3356318 /* TokenCard.swift */; };
+		46505A792C3F57C1A07793F1 /* TokenFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 277912B119B52F92385750DB /* TokenFormatter.swift */; };
+		48F20786D110C5DD6B8423AC /* StreamingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3203B54E398B6FA82C49F39 /* StreamingView.swift */; };
+		4A2DD45B085FECC4A6B5B45C /* TokenHistoryChart.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42D120A44F9693ED19653B54 /* TokenHistoryChart.swift */; };
+		50F8287E4519A01B3197DF67 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B1FFC0CAC71F0DC235F00D33 /* Assets.xcassets */; };
+		57C582D9CFF12DCAD811EF64 /* SessionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41ED3871A4D628B3499395C3 /* SessionState.swift */; };
+		59E11D711F9F026C41CA42DA /* AwaitingDetailPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B83E60778E81DFE5B92FCC2D /* AwaitingDetailPanel.swift */; };
+		6E86BDAAED97C927CF901D0B /* ThinkingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1DD9BCFE0FEDBEB0294AF8B /* ThinkingView.swift */; };
+		767A2F6D6CC833C1A6C6CBC5 /* PetAnimation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92F179BB1490471ED0D5AFF3 /* PetAnimation.swift */; };
+		896B036AE545076EFE51EFDE /* CodexActivation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67B9864416484146664D556B /* CodexActivation.swift */; };
+		919377AB73F80CAAEB65A4A7 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30C42991ECC110BF842EAE1A /* AppDelegate.swift */; };
+		927E63C000020B60A62493A0 /* TokenStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FF36B2CD89161DAC3D865E /* TokenStore.swift */; };
+		953EFAA8882D06AFE74292D7 /* PixelPetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBE8CCB3350C6D184EE29C32 /* PixelPetView.swift */; };
+		AEC12C0ACE2FD3DBEA87D789 /* NotchIslandPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61104FAE96694A58F4BD75EF /* NotchIslandPanel.swift */; };
+		BAD51EC51595BA6100FB51D4 /* PetEvolutionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A79362B08C08766137935026 /* PetEvolutionStore.swift */; };
+		C4F7630C32BA280EABF783C1 /* IslandShape.swift in Sources */ = {isa = PBXBuildFile; fileRef = 468F97FDA96EC3D9C2E36C6B /* IslandShape.swift */; };
+		C7260F498FC32CC28A369268 /* TokenColors.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8DF0B723E3D84037BC45675 /* TokenColors.swift */; };
+		D04886CD651F4075279C9D1F /* IdleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 800B32207E6C3BDCD828A429 /* IdleView.swift */; };
+		DA05BE984A9DEE3302E31353 /* AwaitNotificationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE661BFE7D2A68428BE79B6B /* AwaitNotificationCoordinator.swift */; };
+		DDE9C64359ECE3DCD3369F52 /* AnimatedTokenCounter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24D58AA45F6BFDA841CBFFBF /* AnimatedTokenCounter.swift */; };
+		DE8E142BF93C8D1940D88981 /* AwaitReasonLabel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 112456629956FDAA474AF77A /* AwaitReasonLabel.swift */; };
+		EE55377C75F64B9E9BC53CD7 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02E7E9CC09A00B1E7A87F9E3 /* main.swift */; };
+		FBA3F0A1BCE666EEEC01D583 /* ExpandedPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C908711A5394068832C2F9AA /* ExpandedPanelView.swift */; };
+		FBB3D121D2B2D940C014665A /* SidecarBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6363BA6C2C6137F4CC4CE7E4 /* SidecarBridge.swift */; };
+		FCF1470F56DD61F572A58AEA /* RoamingPetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE0208DA1008D3B62CB34C79 /* RoamingPetView.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		02E7E9CC09A00B1E7A87F9E3 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
+		0BAFC2C1DA9D8AB76EBFFE85 /* ActivateCodexButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivateCodexButton.swift; sourceTree = "<group>"; };
+		112456629956FDAA474AF77A /* AwaitReasonLabel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AwaitReasonLabel.swift; sourceTree = "<group>"; };
+		11B7923A5E7C65BBB8FF1515 /* PlaceholderPetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaceholderPetView.swift; sourceTree = "<group>"; };
+		24D58AA45F6BFDA841CBFFBF /* AnimatedTokenCounter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnimatedTokenCounter.swift; sourceTree = "<group>"; };
+		277912B119B52F92385750DB /* TokenFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TokenFormatter.swift; sourceTree = "<group>"; };
+		309295CE0642154DFC0B924B /* GlobalTokenUsageSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalTokenUsageSnapshot.swift; sourceTree = "<group>"; };
+		30C42991ECC110BF842EAE1A /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		40F09BDCAF87E77C31CC3C6D /* NotchIslandView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotchIslandView.swift; sourceTree = "<group>"; };
+		41ED3871A4D628B3499395C3 /* SessionState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionState.swift; sourceTree = "<group>"; };
+		42D120A44F9693ED19653B54 /* TokenHistoryChart.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TokenHistoryChart.swift; sourceTree = "<group>"; };
+		468F97FDA96EC3D9C2E36C6B /* IslandShape.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IslandShape.swift; sourceTree = "<group>"; };
+		61104FAE96694A58F4BD75EF /* NotchIslandPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotchIslandPanel.swift; sourceTree = "<group>"; };
+		6363BA6C2C6137F4CC4CE7E4 /* SidecarBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidecarBridge.swift; sourceTree = "<group>"; };
+		67B9864416484146664D556B /* CodexActivation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexActivation.swift; sourceTree = "<group>"; };
+		7B00A7CF54718DD6687EA90C /* TokenPill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TokenPill.swift; sourceTree = "<group>"; };
+		800B32207E6C3BDCD828A429 /* IdleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IdleView.swift; sourceTree = "<group>"; };
+		82F6E74CEA999AB8E61CEBAD /* EventBus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventBus.swift; sourceTree = "<group>"; };
+		8F51C7F32B043843E3356318 /* TokenCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TokenCard.swift; sourceTree = "<group>"; };
+		92A6C8FD901CFD058A98456A /* PulseRingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PulseRingView.swift; sourceTree = "<group>"; };
+		92F179BB1490471ED0D5AFF3 /* PetAnimation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PetAnimation.swift; sourceTree = "<group>"; };
+		A34D7CA0C1EDD0128470BFB2 /* AwaitingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AwaitingView.swift; sourceTree = "<group>"; };
+		A79362B08C08766137935026 /* PetEvolutionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PetEvolutionStore.swift; sourceTree = "<group>"; };
+		B1FFC0CAC71F0DC235F00D33 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		B3203B54E398B6FA82C49F39 /* StreamingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamingView.swift; sourceTree = "<group>"; };
+		B83E60778E81DFE5B92FCC2D /* AwaitingDetailPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AwaitingDetailPanel.swift; sourceTree = "<group>"; };
+		BCAE230238A1E94C84656DD6 /* CodexIsland.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CodexIsland.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C908711A5394068832C2F9AA /* ExpandedPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExpandedPanelView.swift; sourceTree = "<group>"; };
+		CED6D9ABE61D9BC7325F14A2 /* TokenInfoRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TokenInfoRow.swift; sourceTree = "<group>"; };
+		D1DD9BCFE0FEDBEB0294AF8B /* ThinkingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThinkingView.swift; sourceTree = "<group>"; };
+		D1FF36B2CD89161DAC3D865E /* TokenStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TokenStore.swift; sourceTree = "<group>"; };
+		EE0208DA1008D3B62CB34C79 /* RoamingPetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoamingPetView.swift; sourceTree = "<group>"; };
+		EE661BFE7D2A68428BE79B6B /* AwaitNotificationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AwaitNotificationCoordinator.swift; sourceTree = "<group>"; };
+		F8DF0B723E3D84037BC45675 /* TokenColors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TokenColors.swift; sourceTree = "<group>"; };
+		FAAF6D4D5443F680AD5D0966 /* AppSettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettingsStore.swift; sourceTree = "<group>"; };
+		FBE8CCB3350C6D184EE29C32 /* PixelPetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PixelPetView.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		1E53B7F58DBBFEBB51D6535C /* CodexIsland */ = {
+			isa = PBXGroup;
+			children = (
+				B1FFC0CAC71F0DC235F00D33 /* Assets.xcassets */,
+				B3834B43E85B0890E3256F14 /* App */,
+				7021E712CA9B9DB250EBDFC1 /* Core */,
+				5C9D7E07E765BEFA13660F88 /* DataLayer */,
+				25FF767229B25CCDE617142A /* UI */,
+			);
+			path = CodexIsland;
+			sourceTree = "<group>";
+		};
+		25FF767229B25CCDE617142A /* UI */ = {
+			isa = PBXGroup;
+			children = (
+				99ECBE240A13762EAD0A3E00 /* Components */,
+				2C98E0A150D946EFD6DE7B4C /* NotchWindow */,
+				63B41CCBC9EEB4A1F969F65A /* States */,
+			);
+			path = UI;
+			sourceTree = "<group>";
+		};
+		2C98E0A150D946EFD6DE7B4C /* NotchWindow */ = {
+			isa = PBXGroup;
+			children = (
+				468F97FDA96EC3D9C2E36C6B /* IslandShape.swift */,
+				61104FAE96694A58F4BD75EF /* NotchIslandPanel.swift */,
+				40F09BDCAF87E77C31CC3C6D /* NotchIslandView.swift */,
+			);
+			path = NotchWindow;
+			sourceTree = "<group>";
+		};
+		5C9D7E07E765BEFA13660F88 /* DataLayer */ = {
+			isa = PBXGroup;
+			children = (
+				6363BA6C2C6137F4CC4CE7E4 /* SidecarBridge.swift */,
+			);
+			path = DataLayer;
+			sourceTree = "<group>";
+		};
+		63B41CCBC9EEB4A1F969F65A /* States */ = {
+			isa = PBXGroup;
+			children = (
+				B83E60778E81DFE5B92FCC2D /* AwaitingDetailPanel.swift */,
+				A34D7CA0C1EDD0128470BFB2 /* AwaitingView.swift */,
+				C908711A5394068832C2F9AA /* ExpandedPanelView.swift */,
+				800B32207E6C3BDCD828A429 /* IdleView.swift */,
+				B3203B54E398B6FA82C49F39 /* StreamingView.swift */,
+				D1DD9BCFE0FEDBEB0294AF8B /* ThinkingView.swift */,
+			);
+			path = States;
+			sourceTree = "<group>";
+		};
+		7021E712CA9B9DB250EBDFC1 /* Core */ = {
+			isa = PBXGroup;
+			children = (
+				FAAF6D4D5443F680AD5D0966 /* AppSettingsStore.swift */,
+				EE661BFE7D2A68428BE79B6B /* AwaitNotificationCoordinator.swift */,
+				67B9864416484146664D556B /* CodexActivation.swift */,
+				82F6E74CEA999AB8E61CEBAD /* EventBus.swift */,
+				309295CE0642154DFC0B924B /* GlobalTokenUsageSnapshot.swift */,
+				A79362B08C08766137935026 /* PetEvolutionStore.swift */,
+				41ED3871A4D628B3499395C3 /* SessionState.swift */,
+				277912B119B52F92385750DB /* TokenFormatter.swift */,
+				D1FF36B2CD89161DAC3D865E /* TokenStore.swift */,
+			);
+			path = Core;
+			sourceTree = "<group>";
+		};
+		99ECBE240A13762EAD0A3E00 /* Components */ = {
+			isa = PBXGroup;
+			children = (
+				0BAFC2C1DA9D8AB76EBFFE85 /* ActivateCodexButton.swift */,
+				24D58AA45F6BFDA841CBFFBF /* AnimatedTokenCounter.swift */,
+				112456629956FDAA474AF77A /* AwaitReasonLabel.swift */,
+				92F179BB1490471ED0D5AFF3 /* PetAnimation.swift */,
+				FBE8CCB3350C6D184EE29C32 /* PixelPetView.swift */,
+				11B7923A5E7C65BBB8FF1515 /* PlaceholderPetView.swift */,
+				92A6C8FD901CFD058A98456A /* PulseRingView.swift */,
+				EE0208DA1008D3B62CB34C79 /* RoamingPetView.swift */,
+				8F51C7F32B043843E3356318 /* TokenCard.swift */,
+				F8DF0B723E3D84037BC45675 /* TokenColors.swift */,
+				42D120A44F9693ED19653B54 /* TokenHistoryChart.swift */,
+				CED6D9ABE61D9BC7325F14A2 /* TokenInfoRow.swift */,
+				7B00A7CF54718DD6687EA90C /* TokenPill.swift */,
+			);
+			path = Components;
+			sourceTree = "<group>";
+		};
+		B3834B43E85B0890E3256F14 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				30C42991ECC110BF842EAE1A /* AppDelegate.swift */,
+				02E7E9CC09A00B1E7A87F9E3 /* main.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		D4CEDD99A90E29FC6EB0FFDD /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				BCAE230238A1E94C84656DD6 /* CodexIsland.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		D730C63676D943CBE3EB77CD = {
+			isa = PBXGroup;
+			children = (
+				1E53B7F58DBBFEBB51D6535C /* CodexIsland */,
+				D4CEDD99A90E29FC6EB0FFDD /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		C8197D31A7B52E81FE6ABF86 /* CodexIsland */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C075A8AD1DAF1A272EC542F6 /* Build configuration list for PBXNativeTarget "CodexIsland" */;
+			buildPhases = (
+				A9F24A9CD1CC045B528E651F /* Sources */,
+				5E69531F814BA52F704E0DFA /* Resources */,
+				17F3EB220B8B9EFC036F66F7 /* Build Rust Sidecar */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = CodexIsland;
+			packageProductDependencies = (
+			);
+			productName = CodexIsland;
+			productReference = BCAE230238A1E94C84656DD6 /* CodexIsland.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		DE57064614E774537C3ABE51 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					C8197D31A7B52E81FE6ABF86 = {
+						ProvisioningStyle = Manual;
+					};
+				};
+			};
+			buildConfigurationList = D5853F8A383F895348DD3C8A /* Build configuration list for PBXProject "CodexIsland" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = D730C63676D943CBE3EB77CD;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = D4CEDD99A90E29FC6EB0FFDD /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				C8197D31A7B52E81FE6ABF86 /* CodexIsland */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		5E69531F814BA52F704E0DFA /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				50F8287E4519A01B3197DF67 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		17F3EB220B8B9EFC036F66F7 /* Build Rust Sidecar */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Build Rust Sidecar";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\nexport PATH=\"$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:$PATH\"\ncd \"$PROJECT_DIR/codex-watcher\"\nif [ \"${CONFIGURATION:-Debug}\" = \"Release\" ]; then\n  if command -v rustup >/dev/null 2>&1; then\n    rustup target add arm64-apple-darwin x86_64-apple-darwin\n    cargo build --release --target arm64-apple-darwin\n    cargo build --release --target x86_64-apple-darwin\n    lipo -create \\\n      \"$PROJECT_DIR/codex-watcher/target/arm64-apple-darwin/release/codex-watcher\" \\\n      \"$PROJECT_DIR/codex-watcher/target/x86_64-apple-darwin/release/codex-watcher\" \\\n      -output \"$PROJECT_DIR/codex-watcher/target/release/codex-watcher-universal\"\n    SIDECAR_PATH=\"$PROJECT_DIR/codex-watcher/target/release/codex-watcher-universal\"\n  else\n    cargo build --release\n    SIDECAR_PATH=\"$PROJECT_DIR/codex-watcher/target/release/codex-watcher\"\n  fi\nelse\n  cargo build\n  SIDECAR_PATH=\"$PROJECT_DIR/codex-watcher/target/debug/codex-watcher\"\nfi\nmkdir -p \"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH\"\ncp \"$SIDECAR_PATH\" \"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/codex-watcher\"\nchmod +x \"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/codex-watcher\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A9F24A9CD1CC045B528E651F /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0847C3B87853D55880CF4F94 /* ActivateCodexButton.swift in Sources */,
+				DDE9C64359ECE3DCD3369F52 /* AnimatedTokenCounter.swift in Sources */,
+				919377AB73F80CAAEB65A4A7 /* AppDelegate.swift in Sources */,
+				1A11DCA4AC06CE7F0ED7A300 /* AppSettingsStore.swift in Sources */,
+				DA05BE984A9DEE3302E31353 /* AwaitNotificationCoordinator.swift in Sources */,
+				DE8E142BF93C8D1940D88981 /* AwaitReasonLabel.swift in Sources */,
+				59E11D711F9F026C41CA42DA /* AwaitingDetailPanel.swift in Sources */,
+				0F92B5693559E70C8296CF7B /* AwaitingView.swift in Sources */,
+				896B036AE545076EFE51EFDE /* CodexActivation.swift in Sources */,
+				199186B1C23BC8BC901981ED /* EventBus.swift in Sources */,
+				FBA3F0A1BCE666EEEC01D583 /* ExpandedPanelView.swift in Sources */,
+				0F86677435AC727A8968FBA0 /* GlobalTokenUsageSnapshot.swift in Sources */,
+				D04886CD651F4075279C9D1F /* IdleView.swift in Sources */,
+				C4F7630C32BA280EABF783C1 /* IslandShape.swift in Sources */,
+				AEC12C0ACE2FD3DBEA87D789 /* NotchIslandPanel.swift in Sources */,
+				1B7E9FC1635084C3DAFE946C /* NotchIslandView.swift in Sources */,
+				767A2F6D6CC833C1A6C6CBC5 /* PetAnimation.swift in Sources */,
+				BAD51EC51595BA6100FB51D4 /* PetEvolutionStore.swift in Sources */,
+				953EFAA8882D06AFE74292D7 /* PixelPetView.swift in Sources */,
+				2B97B381F7AD96657C76F52B /* PlaceholderPetView.swift in Sources */,
+				194E4A6FCA8B194BA0D3FC5D /* PulseRingView.swift in Sources */,
+				FCF1470F56DD61F572A58AEA /* RoamingPetView.swift in Sources */,
+				57C582D9CFF12DCAD811EF64 /* SessionState.swift in Sources */,
+				FBB3D121D2B2D940C014665A /* SidecarBridge.swift in Sources */,
+				48F20786D110C5DD6B8423AC /* StreamingView.swift in Sources */,
+				6E86BDAAED97C927CF901D0B /* ThinkingView.swift in Sources */,
+				2E18AB5DA799D8C9A24A3F5A /* TokenCard.swift in Sources */,
+				C7260F498FC32CC28A369268 /* TokenColors.swift in Sources */,
+				46505A792C3F57C1A07793F1 /* TokenFormatter.swift in Sources */,
+				4A2DD45B085FECC4A6B5B45C /* TokenHistoryChart.swift in Sources */,
+				10337B3BDB97A0B2F30B57CC /* TokenInfoRow.swift in Sources */,
+				1718100CBC49BDD67BC3E22A /* TokenPill.swift in Sources */,
+				927E63C000020B60A62493A0 /* TokenStore.swift in Sources */,
+				EE55377C75F64B9E9BC53CD7 /* main.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		1A15C3620E7BFB8AF58A2CF0 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = CodexIsland/CodexIsland.entitlements;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				INFOPLIST_FILE = CodexIsland/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.huang.codexisland;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		4411D2016519C94514D63941 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = CodexIsland/CodexIsland.entitlements;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				INFOPLIST_FILE = CodexIsland/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.huang.codexisland;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		B279E340215FA62930CF5558 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		FE7BB74A360741CFAAFF0459 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		C075A8AD1DAF1A272EC542F6 /* Build configuration list for PBXNativeTarget "CodexIsland" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1A15C3620E7BFB8AF58A2CF0 /* Debug */,
+				4411D2016519C94514D63941 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		D5853F8A383F895348DD3C8A /* Build configuration list for PBXProject "CodexIsland" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				FE7BB74A360741CFAAFF0459 /* Debug */,
+				B279E340215FA62930CF5558 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = DE57064614E774537C3ABE51 /* Project object */;
+}

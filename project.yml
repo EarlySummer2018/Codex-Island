@@ -1,0 +1,60 @@
+name: CodexIsland
+
+options:
+  minimumXcodeGenVersion: 2.45.4
+  deploymentTarget:
+    macOS: "13.0"
+
+settings:
+  base:
+    CURRENT_PROJECT_VERSION: 1
+    MARKETING_VERSION: 0.1.0
+    SWIFT_VERSION: 5.0
+
+targets:
+  CodexIsland:
+    type: application
+    platform: macOS
+    deploymentTarget: "13.0"
+    sources:
+      - path: CodexIsland
+        excludes:
+          - Info.plist
+          - CodexIsland.entitlements
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.huang.codexisland
+        INFOPLIST_FILE: CodexIsland/Info.plist
+        CODE_SIGN_ENTITLEMENTS: CodexIsland/CodexIsland.entitlements
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "-"
+        ENABLE_HARDENED_RUNTIME: YES
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+    postBuildScripts:
+      - name: Build Rust Sidecar
+        basedOnDependencyAnalysis: false
+        script: |
+          set -euo pipefail
+          export PATH="$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+          cd "$PROJECT_DIR/codex-watcher"
+          if [ "${CONFIGURATION:-Debug}" = "Release" ]; then
+            if command -v rustup >/dev/null 2>&1; then
+              rustup target add arm64-apple-darwin x86_64-apple-darwin
+              cargo build --release --target arm64-apple-darwin
+              cargo build --release --target x86_64-apple-darwin
+              lipo -create \
+                "$PROJECT_DIR/codex-watcher/target/arm64-apple-darwin/release/codex-watcher" \
+                "$PROJECT_DIR/codex-watcher/target/x86_64-apple-darwin/release/codex-watcher" \
+                -output "$PROJECT_DIR/codex-watcher/target/release/codex-watcher-universal"
+              SIDECAR_PATH="$PROJECT_DIR/codex-watcher/target/release/codex-watcher-universal"
+            else
+              cargo build --release
+              SIDECAR_PATH="$PROJECT_DIR/codex-watcher/target/release/codex-watcher"
+            fi
+          else
+            cargo build
+            SIDECAR_PATH="$PROJECT_DIR/codex-watcher/target/debug/codex-watcher"
+          fi
+          mkdir -p "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH"
+          cp "$SIDECAR_PATH" "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/codex-watcher"
+          chmod +x "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/codex-watcher"
