@@ -36,17 +36,24 @@ targets:
         script: |
           set -euo pipefail
           export PATH="$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+          export RUSTUP_DIST_SERVER="https://static.rust-lang.org"
+          export RUSTUP_UPDATE_ROOT="https://static.rust-lang.org/rustup"
           cd "$PROJECT_DIR/codex-watcher"
           if [ "${CONFIGURATION:-Debug}" = "Release" ]; then
             if command -v rustup >/dev/null 2>&1; then
-              rustup target add arm64-apple-darwin x86_64-apple-darwin
-              cargo build --release --target arm64-apple-darwin
-              cargo build --release --target x86_64-apple-darwin
-              lipo -create \
-                "$PROJECT_DIR/codex-watcher/target/arm64-apple-darwin/release/codex-watcher" \
-                "$PROJECT_DIR/codex-watcher/target/x86_64-apple-darwin/release/codex-watcher" \
-                -output "$PROJECT_DIR/codex-watcher/target/release/codex-watcher-universal"
-              SIDECAR_PATH="$PROJECT_DIR/codex-watcher/target/release/codex-watcher-universal"
+              if rustup target add aarch64-apple-darwin x86_64-apple-darwin \
+                && cargo build --release --target aarch64-apple-darwin \
+                && cargo build --release --target x86_64-apple-darwin \
+                && lipo -create \
+                  "$PROJECT_DIR/codex-watcher/target/aarch64-apple-darwin/release/codex-watcher" \
+                  "$PROJECT_DIR/codex-watcher/target/x86_64-apple-darwin/release/codex-watcher" \
+                  -output "$PROJECT_DIR/codex-watcher/target/release/codex-watcher-universal"; then
+                SIDECAR_PATH="$PROJECT_DIR/codex-watcher/target/release/codex-watcher-universal"
+              else
+                echo "Universal Rust sidecar build failed; falling back to current architecture."
+                cargo build --release
+                SIDECAR_PATH="$PROJECT_DIR/codex-watcher/target/release/codex-watcher"
+              fi
             else
               cargo build --release
               SIDECAR_PATH="$PROJECT_DIR/codex-watcher/target/release/codex-watcher"
