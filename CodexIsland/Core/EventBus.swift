@@ -9,12 +9,8 @@ final class EventBus: ObservableObject {
     @Published private(set) var awaitReason: AwaitReason?
     @Published private(set) var latestToken: TokenSnapshot?
     @Published private(set) var activeSessionId: String?
-    @Published private(set) var petFeedTrigger: UUID?
 
-    private let feedThreshold = 1_000
     private let minimumActiveDisplayDuration: TimeInterval = 1.4
-    private var lastFedSessionId: String?
-    private var lastFedOutputTokens = 0
     private var sessionStates: [String: CodexSessionState] = [:]
     private var sessionAwaitReasons: [String: AwaitReason] = [:]
     private var sessionTokens: [String: TokenSnapshot] = [:]
@@ -115,7 +111,6 @@ final class EventBus: ObservableObject {
 
         if isActiveSnapshot {
             latestToken = snapshot
-            updatePetFeedTrigger(with: snapshot)
         }
     }
 
@@ -160,23 +155,6 @@ final class EventBus: ObservableObject {
         return !(sessionStates[activeSessionId] ?? .idle).shouldPromoteToFront
     }
 
-    private func updatePetFeedTrigger(with snapshot: TokenSnapshot) {
-        if lastFedSessionId != snapshot.sessionId {
-            lastFedSessionId = snapshot.sessionId
-            lastFedOutputTokens = 0
-        }
-
-        if snapshot.totalOutput < lastFedOutputTokens {
-            lastFedOutputTokens = snapshot.totalOutput
-        }
-
-        guard snapshot.totalOutput - lastFedOutputTokens >= feedThreshold else {
-            return
-        }
-
-        lastFedOutputTokens = snapshot.totalOutput
-        petFeedTrigger = UUID()
-    }
 }
 
 private extension CodexSessionState {

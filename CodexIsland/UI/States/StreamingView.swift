@@ -7,9 +7,6 @@ struct StreamingView: View {
 
     var body: some View {
         ZStack(alignment: .leading) {
-            TokenInfoRow(style: settings.capsuleStyle)
-                .padding(.horizontal, 12)
-
             RoamingPetView(
                 animationName: animationName,
                 stage: evolutionStore.stage,
@@ -18,6 +15,11 @@ struct StreamingView: View {
                 feedTrigger: evolutionStore.feedTrigger,
                 evolutionTrigger: evolutionStore.evolutionTrigger
             )
+            .zIndex(0)
+
+            TokenInfoRow(style: settings.capsuleStyle)
+                .padding(.horizontal, 12)
+                .zIndex(1)
         }
         .frame(
             width: settings.capsuleStyle.pillSize.width,

@@ -146,8 +146,13 @@ impl TokenParser {
 
         self.accumulators.insert(file_key.clone(), current.clone());
 
+        let resolved_session_id = session_id
+            .map(ToOwned::to_owned)
+            .or_else(|| session_id_from_path(session_file))
+            .unwrap_or_else(|| "unknown".to_string());
+
         let snapshot = TokenSnapshot {
-            session_id: session_id.unwrap_or("unknown").to_string(),
+            session_id: resolved_session_id,
             session_file: file_key,
             delta_input,
             delta_cached_input,
@@ -183,6 +188,32 @@ impl TokenParser {
         self.accumulators.remove(session_file);
         self.turn_indices.remove(session_file);
     }
+}
+
+fn session_id_from_path(path: &Path) -> Option<String> {
+    let stem = path.file_stem()?.to_str()?;
+    let parts: Vec<&str> = stem.split('-').collect();
+
+    if parts.len() >= 5 {
+        for start in (0..=parts.len() - 5).rev() {
+            let candidate = &parts[start..start + 5];
+            if candidate
+                .iter()
+                .zip([8, 4, 4, 4, 12])
+                .all(|(part, length)| {
+                    part.len() == length
+                        && part.chars().all(|character| character.is_ascii_hexdigit())
+                })
+            {
+                return Some(candidate.join("-"));
+            }
+        }
+    }
+
+    stem.rsplit('-')
+        .next()
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
 }
 
 #[cfg(test)]
@@ -250,6 +281,18 @@ mod tests {
         }
     }
 
+    fn filename_only_token_line() -> RawJsonlLine {
+        RawJsonlLine {
+            session_file: PathBuf::from(
+                "/tmp/rollout-2026-06-28T17-05-03-019f0d79-a330-7352-97a3-9032d7b038db.jsonl",
+            ),
+            session_id: None,
+            event_type: "event_msg".to_string(),
+            payload_type: Some("token_count".to_string()),
+            parsed: token_value(80, 20, 7, 1),
+        }
+    }
+
     #[test]
     fn first_event_uses_full_value_as_delta() {
         let mut parser = TokenParser::new();
@@ -293,6 +336,15 @@ mod tests {
         assert_eq!(snapshot.total_reasoning, 31644);
         assert_eq!(snapshot.delta_output, 113761);
         assert_eq!(snapshot.turn_index, 1);
+    }
+
+    #[test]
+    fn falls_back_to_filename_session_id_when_metadata_is_missing() {
+        let mut parser = TokenParser::new();
+        let snapshot = parser.process_line(&filename_only_token_line()).unwrap();
+
+        assert_eq!(snapshot.session_id, "019f0d79-a330-7352-97a3-9032d7b038db");
+        assert_eq!(snapshot.total_output, 7);
     }
 
     #[test]

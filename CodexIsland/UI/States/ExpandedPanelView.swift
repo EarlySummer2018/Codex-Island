@@ -6,8 +6,6 @@ struct ExpandedPanelView: View {
     @ObservedObject private var evolutionStore = PetEvolutionStore.shared
     @ObservedObject private var settings = AppSettingsStore.shared
 
-    var feedTrigger: UUID?
-
     var body: some View {
         VStack(spacing: 0) {
             header

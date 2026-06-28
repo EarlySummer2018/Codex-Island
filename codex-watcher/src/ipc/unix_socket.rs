@@ -141,3 +141,30 @@ pub async fn cleanup_socket(socket_path: &Path) -> Result<()> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::ReplayCache;
+
+    #[test]
+    fn replay_cache_keeps_state_session_token_and_global_token() {
+        let mut cache = ReplayCache::default();
+
+        cache.update(
+            r#"{"type":"global_token_usage","total_input":300,"total_cached_input":140,"total_output":37,"total_reasoning":3,"total_tokens":337,"session_count":2,"updated_at":"2026-06-28T08:00:00Z"}"#,
+        );
+        cache.update(
+            r#"{"session_id":"session-a","session_file":"/tmp/a.jsonl","delta_input":20,"delta_cached_input":10,"delta_uncached_input":10,"delta_output":7,"delta_reasoning":1,"total_input":80,"total_cached_input":20,"total_uncached_input":60,"total_output":7,"total_reasoning":1,"cache_hit_rate":0.25,"timestamp":"2026-06-28T08:00:00Z","turn_index":1}"#,
+        );
+        cache.update(
+            r#"{"session_id":"session-a","state":"streaming","timestamp":"2026-06-28T08:00:00Z","await_reason":null}"#,
+        );
+
+        let messages = cache.messages();
+
+        assert_eq!(messages.len(), 3);
+        assert!(messages[0].contains(r#""type":"global_token_usage""#));
+        assert!(messages[1].contains(r#""delta_output":7"#));
+        assert!(messages[2].contains(r#""state":"streaming""#));
+    }
+}

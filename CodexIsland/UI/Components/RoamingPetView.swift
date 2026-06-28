@@ -9,6 +9,7 @@ struct RoamingPetView: View {
     var evolutionTrigger: UUID?
 
     @State private var anchorIndex = 0
+    @State private var direction = 1
     @State private var movementTimer: Timer?
 
     var body: some View {
@@ -32,6 +33,7 @@ struct RoamingPetView: View {
         }
         .onChange(of: capsuleStyle) { _ in
             anchorIndex = min(anchorIndex, anchors.count - 1)
+            direction = 1
             startMovement()
         }
         .allowsHitTesting(false)
@@ -59,15 +61,29 @@ struct RoamingPetView: View {
     }
 
     private var isMovingLeft: Bool {
-        anchorIndex == anchors.indices.last
+        direction < 0
     }
 
     private func startMovement() {
         movementTimer?.invalidate()
         anchorIndex = min(anchorIndex, anchors.count - 1)
+        direction = anchorIndex == anchors.indices.last ? -1 : max(direction, 1)
 
         let timer = Timer(timeInterval: dwellDuration, repeats: true) { _ in
-            anchorIndex = (anchorIndex + 1) % anchors.count
+            guard anchors.count > 1 else {
+                return
+            }
+
+            var nextIndex = anchorIndex + direction
+            if nextIndex >= anchors.count {
+                direction = -1
+                nextIndex = anchorIndex + direction
+            } else if nextIndex < 0 {
+                direction = 1
+                nextIndex = anchorIndex + direction
+            }
+
+            anchorIndex = min(max(nextIndex, 0), anchors.count - 1)
         }
 
         movementTimer = timer

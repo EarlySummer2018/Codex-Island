@@ -89,9 +89,8 @@ final class PetEvolutionStore: ObservableObject {
             stage = nextStage
             prestigeLevel = nextPrestige
             saveProgress(stage: nextStage, prestige: nextPrestige)
-            if defaults.object(forKey: lastFeedMilestoneKey) == nil {
-                defaults.set(nextFeedMilestone, forKey: lastFeedMilestoneKey)
-            }
+            let savedFeedMilestone = defaults.object(forKey: lastFeedMilestoneKey) as? Int ?? 0
+            defaults.set(max(savedFeedMilestone, nextFeedMilestone), forKey: lastFeedMilestoneKey)
             return
         }
 

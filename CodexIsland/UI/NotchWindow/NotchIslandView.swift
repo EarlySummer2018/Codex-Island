@@ -16,7 +16,7 @@ struct NotchIslandView: View {
         ZStack {
             Group {
                 if model.isExpanded {
-                    ExpandedPanelView(feedTrigger: eventBus.petFeedTrigger)
+                    ExpandedPanelView()
                         .transition(.opacity)
                 } else {
                     pillContent
@@ -39,13 +39,6 @@ struct NotchIslandView: View {
         .onChange(of: eventBus.sessionState) { state in
             onRestingShapeChanged(shape(for: state))
         }
-    }
-
-    private var compactContent: some View {
-        IdleView(
-            animationName: petAnimation,
-            feedTrigger: eventBus.petFeedTrigger
-        )
     }
 
     @ViewBuilder
