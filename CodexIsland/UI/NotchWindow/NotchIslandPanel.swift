@@ -99,9 +99,13 @@ final class NotchIslandPanel: NSPanel {
         orderOut(nil)
     }
 
-    func transition(to shape: IslandShape, animated: Bool = true) {
+    func transition(
+        to shape: IslandShape,
+        animated: Bool = true,
+        completion: (() -> Void)? = nil
+    ) {
         currentShape = shape
-        relayout(animated: animated)
+        relayout(animated: animated, completion: completion)
     }
 
     func resetPosition() {
@@ -161,9 +165,7 @@ final class NotchIslandPanel: NSPanel {
             return
         }
 
-        isHovered = true
-        contentModel.isExpanded = true
-        transition(to: .expanded)
+        expandForHover()
     }
 
     private func syncHoverStateWithMouseLocation() {
@@ -175,10 +177,10 @@ final class NotchIslandPanel: NSPanel {
 
         if isMouseInside {
             if !isHovered {
-                isHovered = true
-                contentModel.isExpanded = true
+                expandForHover()
+            } else {
+                transition(to: .expanded)
             }
-            transition(to: .expanded)
             return
         }
 
@@ -186,9 +188,39 @@ final class NotchIslandPanel: NSPanel {
             return
         }
 
+        collapseFromHover()
+    }
+
+    private func expandForHover() {
+        isHovered = true
+        contentModel.isExpanded = false
+        contentModel.isExpandedContainer = true
+
+        transition(to: .expanded) { [weak self] in
+            guard let self,
+                  self.isHovered,
+                  self.currentShape == .expanded,
+                  !self.isDragging,
+                  !self.isPressingForDrag else {
+                return
+            }
+
+            self.contentModel.isExpanded = true
+        }
+    }
+
+    private func collapseFromHover() {
         isHovered = false
         contentModel.isExpanded = false
-        transition(to: restingShape)
+        transition(to: restingShape) { [weak self] in
+            guard let self,
+                  !self.isHovered,
+                  self.currentShape == self.restingShape else {
+                return
+            }
+
+            self.contentModel.isExpandedContainer = false
+        }
     }
 
     @objc private func screenParametersChanged() {
@@ -200,7 +232,14 @@ final class NotchIslandPanel: NSPanel {
 
         if pressing {
             contentModel.isExpanded = false
-            transition(to: restingShape, animated: true)
+            transition(to: restingShape, animated: true) { [weak self] in
+                guard let self,
+                      self.currentShape == self.restingShape else {
+                    return
+                }
+
+                self.contentModel.isExpandedContainer = false
+            }
         } else {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
                 self?.syncHoverStateWithMouseLocation()
@@ -213,6 +252,7 @@ final class NotchIslandPanel: NSPanel {
         dragStartMouseLocation = location
         dragStartFrame = frame
         contentModel.isExpanded = false
+        contentModel.isExpandedContainer = false
         transition(to: restingShape, animated: false)
     }
 
@@ -245,21 +285,30 @@ final class NotchIslandPanel: NSPanel {
         }
     }
 
-    private func relayout(animated: Bool) {
+    private func relayout(animated: Bool, completion: (() -> Void)? = nil) {
         guard settings.isCapsuleVisible else {
             orderOut(nil)
+            completion?()
             return
         }
 
         guard let screen = targetScreen() else {
+            completion?()
             return
         }
 
         let notchFrame = calculateNotchFrame(for: screen)
-        let windowFrame = calculateWindowFrame(
+        let proposedWindowFrame = calculateWindowFrame(
             shape: currentShape,
             notchFrame: notchFrame,
             screen: screen
+        )
+        let windowFrame = clampedFrame(
+            frameAnchoredToCurrentTopEdgeWhenVisible(
+                proposedWindowFrame,
+                on: screen
+            ),
+            on: screen
         )
 
         if animated {
@@ -267,9 +316,12 @@ final class NotchIslandPanel: NSPanel {
                 context.duration = currentShape == .expanded ? 0.30 : 0.25
                 context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
                 animator().setFrame(windowFrame, display: true)
+            } completionHandler: {
+                completion?()
             }
         } else {
             setFrame(windowFrame, display: true)
+            completion?()
         }
     }
 
@@ -354,10 +406,7 @@ final class NotchIslandPanel: NSPanel {
         )
 
         if let savedOrigin = positionStore.origin(for: size, on: screen) {
-            return clampedFrame(
-                NSRect(origin: savedOrigin, size: size),
-                on: screen
-            )
+            return NSRect(origin: savedOrigin, size: size)
         }
 
         switch shape {
@@ -403,6 +452,28 @@ final class NotchIslandPanel: NSPanel {
             y: min(max(frame.minY, minY), maxY),
             width: frame.width,
             height: frame.height
+        )
+    }
+
+    private func frameAnchoredToCurrentTopEdgeWhenVisible(
+        _ proposedFrame: NSRect,
+        on screen: NSScreen
+    ) -> NSRect {
+        let currentFrame = frame
+        let currentCenter = NSPoint(x: currentFrame.midX, y: currentFrame.midY)
+
+        guard isVisible,
+              currentFrame.width > 0,
+              currentFrame.height > 0,
+              screen.frame.contains(currentCenter) else {
+            return proposedFrame
+        }
+
+        return NSRect(
+            x: currentFrame.midX - proposedFrame.width / 2,
+            y: currentFrame.maxY - proposedFrame.height,
+            width: proposedFrame.width,
+            height: proposedFrame.height
         )
     }
 }
