@@ -273,10 +273,65 @@ struct PlaceholderPetView: View {
 
     private func drawEgg(in context: GraphicsContext, origin: CGPoint, pixel: CGFloat) {
         let bob = frame % 4 < 2 ? 0 : 1
-        drawRect(in: context, origin: origin, pixel: pixel, x: 8, y: 8 + bob, width: 9, height: 12, color: outline)
-        drawRect(in: context, origin: origin, pixel: pixel, x: 9, y: 7 + bob, width: 7, height: 2, color: outline)
-        drawRect(in: context, origin: origin, pixel: pixel, x: 9, y: 9 + bob, width: 7, height: 10, color: Color(red: 0.88, green: 0.98, blue: 0.86))
-        drawRect(in: context, origin: origin, pixel: pixel, x: 10, y: 8 + bob, width: 5, height: 1, color: Color(red: 0.96, green: 1.0, blue: 0.92))
+        let shellColor = Color(red: 0.88, green: 0.98, blue: 0.86)
+        let shineColor = Color(red: 0.96, green: 1.0, blue: 0.92)
+        let outlineRows = [
+            (x: 11, y: 6, width: 3),
+            (x: 9, y: 7, width: 7),
+            (x: 8, y: 8, width: 9),
+            (x: 7, y: 9, width: 11),
+            (x: 7, y: 10, width: 11),
+            (x: 6, y: 11, width: 13),
+            (x: 6, y: 12, width: 13),
+            (x: 6, y: 13, width: 13),
+            (x: 6, y: 14, width: 13),
+            (x: 7, y: 15, width: 11),
+            (x: 7, y: 16, width: 11),
+            (x: 8, y: 17, width: 9),
+            (x: 9, y: 18, width: 7),
+            (x: 10, y: 19, width: 5)
+        ]
+        let fillRows = [
+            (x: 10, y: 7, width: 5),
+            (x: 9, y: 8, width: 7),
+            (x: 8, y: 9, width: 9),
+            (x: 8, y: 10, width: 9),
+            (x: 7, y: 11, width: 11),
+            (x: 7, y: 12, width: 11),
+            (x: 7, y: 13, width: 11),
+            (x: 7, y: 14, width: 11),
+            (x: 8, y: 15, width: 9),
+            (x: 8, y: 16, width: 9),
+            (x: 9, y: 17, width: 7),
+            (x: 10, y: 18, width: 5)
+        ]
+
+        for row in outlineRows {
+            drawRect(
+                in: context,
+                origin: origin,
+                pixel: pixel,
+                x: row.x,
+                y: row.y + bob,
+                width: row.width,
+                height: 1,
+                color: outline
+            )
+        }
+        for row in fillRows {
+            drawRect(
+                in: context,
+                origin: origin,
+                pixel: pixel,
+                x: row.x,
+                y: row.y + bob,
+                width: row.width,
+                height: 1,
+                color: shellColor
+            )
+        }
+
+        drawRect(in: context, origin: origin, pixel: pixel, x: 10, y: 8 + bob, width: 4, height: 1, color: shineColor)
         drawRect(in: context, origin: origin, pixel: pixel, x: 10, y: 12 + bob, width: 2, height: 2, color: accentColor)
         drawRect(in: context, origin: origin, pixel: pixel, x: 13, y: 15 + bob, width: 2, height: 2, color: bodyColor)
         drawRect(in: context, origin: origin, pixel: pixel, x: 12, y: 10 + bob, width: 1, height: 1, color: bodyColor)

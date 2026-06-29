@@ -33,11 +33,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        button.image = NSImage(
-            systemSymbolName: "cpu",
-            accessibilityDescription: "Codex Island"
-        )
-        button.image?.isTemplate = true
+        button.image = StatusBarIcon.makeTemplateImage()
+        button.imagePosition = .imageOnly
+        button.toolTip = "Codex Island"
         rebuildStatusMenu()
 
         settings.$capsuleStyle
@@ -230,5 +228,60 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
             .store(in: &cancellables)
         #endif
+    }
+}
+
+private enum StatusBarIcon {
+    static func makeTemplateImage() -> NSImage {
+        let imageSize = NSSize(width: 18, height: 18)
+        let image = NSImage(size: imageSize)
+
+        image.lockFocus()
+        NSGraphicsContext.current?.imageInterpolation = .none
+        NSColor.black.setFill()
+
+        func fill(_ x: Int, _ y: Int, _ width: Int, _ height: Int) {
+            NSRect(
+                x: CGFloat(x),
+                y: imageSize.height - CGFloat(y + height),
+                width: CGFloat(width),
+                height: CGFloat(height)
+            ).fill()
+        }
+
+        func clear(_ x: Int, _ y: Int, _ width: Int, _ height: Int) {
+            NSGraphicsContext.current?.cgContext.clear(
+                CGRect(
+                    x: CGFloat(x),
+                    y: imageSize.height - CGFloat(y + height),
+                    width: CGFloat(width),
+                    height: CGFloat(height)
+                )
+            )
+        }
+
+        fill(9, 2, 1, 3)
+        fill(12, 1, 1, 3)
+        fill(14, 2, 1, 3)
+        fill(9, 4, 6, 1)
+        fill(8, 5, 7, 4)
+        fill(14, 6, 3, 2)
+        fill(4, 8, 4, 5)
+        fill(6, 9, 7, 5)
+        fill(2, 10, 4, 2)
+        fill(1, 9, 2, 2)
+        fill(5, 14, 2, 2)
+        fill(10, 14, 2, 2)
+        fill(4, 7, 1, 2)
+        fill(2, 8, 1, 1)
+
+        clear(10, 6, 1, 1)
+        clear(13, 6, 1, 1)
+        clear(15, 8, 1, 1)
+
+        image.unlockFocus()
+        image.isTemplate = true
+        image.accessibilityDescription = "Codex Island"
+        return image
     }
 }
