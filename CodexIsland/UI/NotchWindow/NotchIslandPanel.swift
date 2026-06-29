@@ -100,12 +100,8 @@ final class NotchIslandPanel: NSPanel {
     }
 
     func resetPosition() {
-        if let screen = targetScreen() {
-            positionStore.reset(on: screen)
-        } else {
-            positionStore.resetAll()
-        }
-        relayout(animated: true)
+        positionStore.resetAll()
+        relayout(animated: true, anchorsToCurrentTopEdge: false)
     }
 
     private func observeSettings() {
@@ -308,7 +304,11 @@ final class NotchIslandPanel: NSPanel {
         positionStore.save(frame: frame, on: screen)
     }
 
-    private func relayout(animated: Bool, completion: (() -> Void)? = nil) {
+    private func relayout(
+        animated: Bool,
+        completion: (() -> Void)? = nil,
+        anchorsToCurrentTopEdge: Bool = true
+    ) {
         guard settings.isCapsuleVisible else {
             orderOut(nil)
             completion?()
@@ -326,13 +326,13 @@ final class NotchIslandPanel: NSPanel {
             notchFrame: notchFrame,
             screen: screen
         )
-        let windowFrame = clampedFrame(
-            frameAnchoredToCurrentTopEdgeWhenVisible(
+        let anchoredWindowFrame = anchorsToCurrentTopEdge
+            ? frameAnchoredToCurrentTopEdgeWhenVisible(
                 proposedWindowFrame,
                 on: screen
-            ),
-            on: screen
-        )
+            )
+            : proposedWindowFrame
+        let windowFrame = clampedFrame(anchoredWindowFrame, on: screen)
 
         if animated {
             NSAnimationContext.runAnimationGroup { context in
