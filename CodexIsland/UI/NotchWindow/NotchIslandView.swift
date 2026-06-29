@@ -30,6 +30,20 @@ struct NotchIslandView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(containerShape.fill(Color.black))
+        .overlay(
+            containerShape.stroke(
+                LinearGradient(
+                    colors: [
+                        Color(red: 1.0, green: 0.20, blue: 0.56).opacity(model.isExpandedContainer ? 0.55 : 0.0),
+                        Color(red: 0.52, green: 0.25, blue: 0.95).opacity(model.isExpandedContainer ? 0.34 : 0.0),
+                        Color.white.opacity(model.isExpandedContainer ? 0.08 : 0.0)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ),
+                lineWidth: model.isExpandedContainer ? 1 : 0
+            )
+        )
         .clipShape(containerShape)
         .contentShape(Rectangle())
         .onAppear {

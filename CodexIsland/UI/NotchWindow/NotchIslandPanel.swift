@@ -230,17 +230,7 @@ final class NotchIslandPanel: NSPanel {
     private func setPressingForDrag(_ pressing: Bool) {
         isPressingForDrag = pressing
 
-        if pressing {
-            contentModel.isExpanded = false
-            transition(to: restingShape, animated: true) { [weak self] in
-                guard let self,
-                      self.currentShape == self.restingShape else {
-                    return
-                }
-
-                self.contentModel.isExpandedContainer = false
-            }
-        } else {
+        if !pressing {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
                 self?.syncHoverStateWithMouseLocation()
             }
@@ -251,9 +241,6 @@ final class NotchIslandPanel: NSPanel {
         isDragging = true
         dragStartMouseLocation = location
         dragStartFrame = frame
-        contentModel.isExpanded = false
-        contentModel.isExpandedContainer = false
-        transition(to: restingShape, animated: false)
     }
 
     private func drag(to location: NSPoint) {
@@ -566,8 +553,7 @@ private final class NotchIslandHostingView: NSHostingView<NotchIslandView> {
     var onDragEnded: (() -> Void)?
 
     private var hoverTrackingArea: NSTrackingArea?
-    private var longPressWorkItem: DispatchWorkItem?
-    private var isLongPressDragging = false
+    private let dragLongPressDuration: TimeInterval = 0.35
 
     override var intrinsicContentSize: NSSize {
         NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric)
@@ -599,42 +585,86 @@ private final class NotchIslandHostingView: NSHostingView<NotchIslandView> {
     }
 
     override func mouseDown(with event: NSEvent) {
-        onPressForDragChanged?(true)
-        let startLocation = NSEvent.mouseLocation
-        let workItem = DispatchWorkItem { [weak self] in
-            guard let self else {
-                return
-            }
-
-            self.isLongPressDragging = true
-            self.onDragBegan?(startLocation)
-        }
-
-        longPressWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: workItem)
-    }
-
-    override func mouseDragged(with event: NSEvent) {
-        guard isLongPressDragging else {
+        let localPoint = convert(event.locationInWindow, from: nil)
+        guard isDragHandlePoint(localPoint) else {
+            super.mouseDown(with: event)
             return
         }
 
-        onDragChanged?(NSEvent.mouseLocation)
-    }
-
-    override func mouseUp(with event: NSEvent) {
-        longPressWorkItem?.cancel()
-        longPressWorkItem = nil
-
-        if isLongPressDragging {
-            isLongPressDragging = false
-            onDragEnded?()
-        } else {
-            onPressForDragChanged?(false)
-        }
+        trackDragHandlePress(startEvent: event)
     }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
         true
+    }
+
+    private func trackDragHandlePress(startEvent: NSEvent) {
+        guard let window else {
+            return
+        }
+
+        onPressForDragChanged?(true)
+        let startLocation = screenLocation(for: startEvent)
+        let longPressDeadline = Date().addingTimeInterval(dragLongPressDuration)
+        var hasBegunDrag = false
+        let eventMask: NSEvent.EventTypeMask = [.leftMouseDragged, .leftMouseUp]
+
+        while true {
+            if !hasBegunDrag, Date() >= longPressDeadline {
+                hasBegunDrag = true
+                onDragBegan?(startLocation)
+            }
+
+            let nextDeadline = hasBegunDrag ? Date.distantFuture : longPressDeadline
+            guard let nextEvent = window.nextEvent(
+                matching: eventMask,
+                until: nextDeadline,
+                inMode: .eventTracking,
+                dequeue: true
+            ) else {
+                continue
+            }
+
+            switch nextEvent.type {
+            case .leftMouseDragged:
+                if hasBegunDrag {
+                    onDragChanged?(screenLocation(for: nextEvent))
+                }
+            case .leftMouseUp:
+                if hasBegunDrag {
+                    onDragEnded?()
+                } else {
+                    onPressForDragChanged?(false)
+                }
+                return
+            default:
+                break
+            }
+        }
+    }
+
+    private func screenLocation(for event: NSEvent) -> NSPoint {
+        guard let eventWindow = event.window else {
+            return NSEvent.mouseLocation
+        }
+
+        return eventWindow.convertPoint(toScreen: event.locationInWindow)
+    }
+
+    private func isDragHandlePoint(_ point: NSPoint) -> Bool {
+        guard bounds.height >= 80 else {
+            return false
+        }
+
+        let handleWidth = min(max(bounds.width * 0.22, 76), 112)
+        let handleHeight: CGFloat = 58
+        let handleFrame = NSRect(
+            x: bounds.maxX - handleWidth - 10,
+            y: bounds.maxY - handleHeight - 4,
+            width: handleWidth,
+            height: handleHeight
+        )
+
+        return handleFrame.contains(point)
     }
 }
