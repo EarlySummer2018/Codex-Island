@@ -6,24 +6,23 @@ struct StreamingView: View {
     @ObservedObject private var evolutionStore = PetEvolutionStore.shared
 
     var body: some View {
-        ZStack(alignment: .leading) {
+        HStack(spacing: 10) {
             RoamingPetView(
                 animationName: animationName,
                 stage: evolutionStore.stage,
                 prestigeLevel: evolutionStore.prestigeLevel,
-                capsuleStyle: settings.capsuleStyle,
                 feedTrigger: evolutionStore.feedTrigger,
                 evolutionTrigger: evolutionStore.evolutionTrigger
             )
-            .zIndex(0)
 
             TokenInfoRow(style: settings.capsuleStyle)
-                .padding(.horizontal, 12)
-                .zIndex(1)
         }
+        .padding(.leading, 12)
+        .padding(.trailing, 14)
         .frame(
             width: settings.capsuleStyle.pillSize.width,
-            height: settings.capsuleStyle.pillSize.height
+            height: settings.capsuleStyle.pillSize.height,
+            alignment: .leading
         )
     }
 }

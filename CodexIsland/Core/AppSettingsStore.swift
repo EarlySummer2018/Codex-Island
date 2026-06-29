@@ -10,9 +10,9 @@ enum CapsuleDisplayStyle: String, CaseIterable, Codable {
     var pillSize: CGSize {
         switch self {
         case .large:
-            return CGSize(width: 440, height: 34)
+            return CGSize(width: 360, height: 34)
         case .small:
-            return CGSize(width: 260, height: 34)
+            return CGSize(width: 220, height: 34)
         }
     }
 }

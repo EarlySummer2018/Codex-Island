@@ -50,17 +50,8 @@ final class NotchIslandPanel: NSPanel {
         hostingView.onHoverChanged = { [weak self] hovered in
             self?.setHovered(hovered)
         }
-        hostingView.onPressForDragChanged = { [weak self] pressing in
-            self?.setPressingForDrag(pressing)
-        }
-        hostingView.onDragBegan = { [weak self] location in
-            self?.beginDrag(at: location)
-        }
-        hostingView.onDragChanged = { [weak self] location in
-            self?.drag(to: location)
-        }
-        hostingView.onDragEnded = { [weak self] in
-            self?.endDrag()
+        hostingView.onDragHandlePressed = { [weak self] event in
+            self?.trackHandleDrag(with: event)
         }
         hostingView.wantsLayer = true
         hostingView.layer?.backgroundColor = NSColor.clear.cgColor
@@ -237,10 +228,41 @@ final class NotchIslandPanel: NSPanel {
         }
     }
 
+    private func trackHandleDrag(with startEvent: NSEvent) {
+        guard let eventWindow = startEvent.window, eventWindow == self else {
+            return
+        }
+
+        beginDrag(at: screenLocation(for: startEvent))
+
+        let eventMask: NSEvent.EventTypeMask = [.leftMouseDragged, .leftMouseUp]
+        while isDragging {
+            guard let nextEvent = eventWindow.nextEvent(
+                matching: eventMask,
+                until: .distantFuture,
+                inMode: .eventTracking,
+                dequeue: true
+            ) else {
+                continue
+            }
+
+            switch nextEvent.type {
+            case .leftMouseDragged:
+                drag(to: screenLocation(for: nextEvent))
+            case .leftMouseUp:
+                endDrag()
+                return
+            default:
+                break
+            }
+        }
+    }
+
     private func beginDrag(at location: NSPoint) {
         isDragging = true
         dragStartMouseLocation = location
         dragStartFrame = frame
+        setPressingForDrag(true)
     }
 
     private func drag(to location: NSPoint) {
@@ -261,15 +283,29 @@ final class NotchIslandPanel: NSPanel {
         }
 
         isDragging = false
-        isPressingForDrag = false
+        setPressingForDrag(false)
+        saveCurrentPosition()
+    }
 
-        if let screen = screen(containing: frame) ?? targetScreen() {
-            positionStore.save(frame: frame, on: screen)
+    private func screenLocation(for event: NSEvent) -> NSPoint {
+        guard let eventWindow = event.window, eventWindow == self else {
+            return NSEvent.mouseLocation
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
-            self?.syncHoverStateWithMouseLocation()
+        return eventWindow.convertPoint(toScreen: event.locationInWindow)
+    }
+
+    private func saveCurrentPosition() {
+        guard let screen = screen(containing: frame) ?? targetScreen() else {
+            return
         }
+
+        let adjustedFrame = clampedFrame(frame, on: screen)
+        if adjustedFrame != frame {
+            setFrame(adjustedFrame, display: true)
+        }
+
+        positionStore.save(frame: frame, on: screen)
     }
 
     private func relayout(animated: Bool, completion: (() -> Void)? = nil) {
@@ -547,13 +583,9 @@ private extension NSScreen {
 
 private final class NotchIslandHostingView: NSHostingView<NotchIslandView> {
     var onHoverChanged: ((Bool) -> Void)?
-    var onPressForDragChanged: ((Bool) -> Void)?
-    var onDragBegan: ((NSPoint) -> Void)?
-    var onDragChanged: ((NSPoint) -> Void)?
-    var onDragEnded: (() -> Void)?
+    var onDragHandlePressed: ((NSEvent) -> Void)?
 
     private var hoverTrackingArea: NSTrackingArea?
-    private let dragLongPressDuration: TimeInterval = 0.35
 
     override var intrinsicContentSize: NSSize {
         NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric)
@@ -584,6 +616,14 @@ private final class NotchIslandHostingView: NSHostingView<NotchIslandView> {
         onHoverChanged?(false)
     }
 
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        if isDragHandlePoint(point) {
+            return self
+        }
+
+        return super.hitTest(point)
+    }
+
     override func mouseDown(with event: NSEvent) {
         let localPoint = convert(event.locationInWindow, from: nil)
         guard isDragHandlePoint(localPoint) else {
@@ -591,64 +631,11 @@ private final class NotchIslandHostingView: NSHostingView<NotchIslandView> {
             return
         }
 
-        trackDragHandlePress(startEvent: event)
+        onDragHandlePressed?(event)
     }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
         true
-    }
-
-    private func trackDragHandlePress(startEvent: NSEvent) {
-        guard let window else {
-            return
-        }
-
-        onPressForDragChanged?(true)
-        let startLocation = screenLocation(for: startEvent)
-        let longPressDeadline = Date().addingTimeInterval(dragLongPressDuration)
-        var hasBegunDrag = false
-        let eventMask: NSEvent.EventTypeMask = [.leftMouseDragged, .leftMouseUp]
-
-        while true {
-            if !hasBegunDrag, Date() >= longPressDeadline {
-                hasBegunDrag = true
-                onDragBegan?(startLocation)
-            }
-
-            let nextDeadline = hasBegunDrag ? Date.distantFuture : longPressDeadline
-            guard let nextEvent = window.nextEvent(
-                matching: eventMask,
-                until: nextDeadline,
-                inMode: .eventTracking,
-                dequeue: true
-            ) else {
-                continue
-            }
-
-            switch nextEvent.type {
-            case .leftMouseDragged:
-                if hasBegunDrag {
-                    onDragChanged?(screenLocation(for: nextEvent))
-                }
-            case .leftMouseUp:
-                if hasBegunDrag {
-                    onDragEnded?()
-                } else {
-                    onPressForDragChanged?(false)
-                }
-                return
-            default:
-                break
-            }
-        }
-    }
-
-    private func screenLocation(for event: NSEvent) -> NSPoint {
-        guard let eventWindow = event.window else {
-            return NSEvent.mouseLocation
-        }
-
-        return eventWindow.convertPoint(toScreen: event.locationInWindow)
     }
 
     private func isDragHandlePoint(_ point: NSPoint) -> Bool {
@@ -658,9 +645,12 @@ private final class NotchIslandHostingView: NSHostingView<NotchIslandView> {
 
         let handleWidth = min(max(bounds.width * 0.22, 76), 112)
         let handleHeight: CGFloat = 58
+        let handleY = isFlipped
+            ? bounds.minY + 4
+            : bounds.maxY - handleHeight - 4
         let handleFrame = NSRect(
             x: bounds.maxX - handleWidth - 10,
-            y: bounds.maxY - handleHeight - 4,
+            y: handleY,
             width: handleWidth,
             height: handleHeight
         )
