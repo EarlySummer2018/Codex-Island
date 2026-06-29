@@ -3,6 +3,7 @@ import Foundation
 enum CodexSessionState: String, Codable, Equatable {
     case idle
     case thinking
+    case working
     case streaming
     case awaitingInput = "awaiting_input"
     case error

@@ -445,6 +445,24 @@ fn sanitize_jsonl_event(parsed: &Value) -> Option<Value> {
             ))
         }
         "event_msg" => sanitize_event_msg(parsed, timestamp),
+        "response_item" => sanitize_response_item(parsed, timestamp),
+        _ => None,
+    }
+}
+
+fn sanitize_response_item(parsed: &Value, timestamp: Option<Value>) -> Option<Value> {
+    let payload = parsed.get("payload")?;
+    let payload_type = payload.get("type").and_then(|value| value.as_str())?;
+
+    match payload_type {
+        "function_call" | "custom_tool_call" => Some(json_object(
+            "response_item",
+            timestamp,
+            vec![
+                ("type", Some(Value::String("tool_call".to_string()))),
+                ("tool", payload.get("name").cloned()),
+            ],
+        )),
         _ => None,
     }
 }
@@ -627,6 +645,7 @@ fn is_state_seed_payload_type(payload_type: &str) -> bool {
             | "task_complete"
             | "user_message"
             | "agent_message"
+            | "tool_call"
             | "token_count"
             | "assistant_message_stop"
             | "awaiting_approval"
@@ -795,6 +814,24 @@ mod tests {
         assert_eq!(sanitized["payload"]["type"], "agent_message");
         assert_eq!(sanitized["payload"]["phase"], "final_answer");
         assert!(sanitized["payload"].get("message").is_none());
+    }
+
+    #[test]
+    fn keeps_tool_call_name_without_arguments() {
+        let value = json!({
+            "type": "response_item",
+            "payload": {
+                "type": "function_call",
+                "name": "exec_command",
+                "arguments": "{\"cmd\":\"private\"}"
+            }
+        });
+
+        let sanitized = sanitize_jsonl_event(&value).unwrap();
+
+        assert_eq!(sanitized["payload"]["type"], "tool_call");
+        assert_eq!(sanitized["payload"]["tool"], "exec_command");
+        assert!(sanitized["payload"].get("arguments").is_none());
     }
 
     #[test]

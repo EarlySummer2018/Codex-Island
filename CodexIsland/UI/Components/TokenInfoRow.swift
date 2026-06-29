@@ -2,6 +2,7 @@ import SwiftUI
 
 struct TokenInfoRow: View {
     @ObservedObject private var store = TokenStore.shared
+    @ObservedObject private var settings = AppSettingsStore.shared
     var style: CapsuleDisplayStyle = .large
 
     var body: some View {
@@ -18,7 +19,7 @@ struct TokenInfoRow: View {
             petSlot
 
             TokenPill(
-                label: "IN",
+                label: settings.text(.input),
                 value: store.totalInput,
                 color: TokenColors.input,
                 width: 54
@@ -27,7 +28,7 @@ struct TokenInfoRow: View {
             petSlot
 
             TokenPill(
-                label: "CACHE",
+                label: settings.text(.cached),
                 value: store.totalCachedInput,
                 color: TokenColors.cached,
                 suffix: store.cacheHitPercent,
@@ -37,7 +38,7 @@ struct TokenInfoRow: View {
             petSlot
 
             TokenPill(
-                label: "OUT",
+                label: settings.text(.output),
                 value: store.totalOutput,
                 color: TokenColors.output,
                 width: 54
@@ -46,7 +47,7 @@ struct TokenInfoRow: View {
             petSlot
 
             TokenPill(
-                label: "TOTAL",
+                label: settings.text(.total),
                 value: store.totalTokens,
                 color: TokenColors.total,
                 width: 64,
@@ -66,7 +67,7 @@ struct TokenInfoRow: View {
             Spacer(minLength: 0)
 
             TokenPill(
-                label: "TOTAL",
+                label: settings.text(.total),
                 value: store.totalTokens,
                 color: TokenColors.total,
                 width: 92,

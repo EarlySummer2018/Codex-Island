@@ -14,6 +14,7 @@ use tracing::{debug, info};
 pub enum SessionState {
     Idle,
     Thinking,
+    Working,
     Streaming,
     AwaitingInput,
     Error,
@@ -113,6 +114,7 @@ impl StateParser {
                     self.transition(&session_id, SessionState::Streaming, None)
                 }
             }
+            "tool_call" => self.transition(&session_id, SessionState::Working, None),
             "token_count" => self.process_token_count(&session_id, &line.parsed),
             "assistant_message_stop" => self.transition(&session_id, SessionState::Idle, None),
             "task_complete" => self.transition(&session_id, SessionState::Idle, None),
@@ -243,6 +245,10 @@ impl StateParser {
         tracker.last_token_time = Some(Instant::now());
 
         if tracker.state == SessionState::AwaitingInput {
+            return None;
+        }
+
+        if tracker.state == SessionState::Working {
             return None;
         }
 
@@ -377,6 +383,10 @@ mod tests {
         jsonl(json!({ "type": "agent_message", "phase": "commentary" }))
     }
 
+    fn tool_call() -> RawJsonlLine {
+        jsonl(json!({ "type": "tool_call", "tool": "exec_command" }))
+    }
+
     #[test]
     fn user_message_moves_to_thinking() {
         let mut parser = StateParser::new();
@@ -461,6 +471,31 @@ mod tests {
         let event = parser.process_jsonl(&agent_message()).unwrap();
 
         assert_eq!(event.state, SessionState::Streaming);
+    }
+
+    #[test]
+    fn tool_call_moves_to_working() {
+        let mut parser = StateParser::new();
+        parser.process_jsonl(&task_started());
+
+        let event = parser.process_jsonl(&tool_call()).unwrap();
+
+        assert_eq!(event.state, SessionState::Working);
+    }
+
+    #[test]
+    fn token_count_during_tool_call_does_not_move_to_streaming() {
+        let mut parser = StateParser::new();
+        parser.process_jsonl(&task_started());
+        parser.process_jsonl(&tool_call()).unwrap();
+
+        let event = parser.process_jsonl(&token_count(10));
+
+        assert!(event.is_none());
+        assert_eq!(
+            parser.trackers.get("sess-1").unwrap().state,
+            SessionState::Working
+        );
     }
 
     #[test]

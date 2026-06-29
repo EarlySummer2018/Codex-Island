@@ -41,22 +41,31 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         rebuildStatusMenu()
 
         settings.$capsuleStyle
+            .dropFirst()
             .sink { [weak self] _ in
-                self?.rebuildStatusMenu()
+                self?.scheduleStatusMenuRebuild()
             }
             .store(in: &cancellables)
 
         settings.$language
+            .dropFirst()
             .sink { [weak self] _ in
-                self?.rebuildStatusMenu()
+                self?.scheduleStatusMenuRebuild()
             }
             .store(in: &cancellables)
 
         settings.$isCapsuleVisible
+            .dropFirst()
             .sink { [weak self] _ in
-                self?.rebuildStatusMenu()
+                self?.scheduleStatusMenuRebuild()
             }
             .store(in: &cancellables)
+    }
+
+    private func scheduleStatusMenuRebuild() {
+        DispatchQueue.main.async { [weak self] in
+            self?.rebuildStatusMenu()
+        }
     }
 
     private func rebuildStatusMenu() {
@@ -154,12 +163,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
+        guard settings.capsuleStyle != style else {
+            return
+        }
+
         settings.capsuleStyle = style
     }
 
     @objc private func selectLanguage(_ sender: NSMenuItem) {
         guard let rawValue = sender.representedObject as? String,
               let language = AppLanguage(rawValue: rawValue) else {
+            return
+        }
+
+        guard settings.language != language else {
             return
         }
 

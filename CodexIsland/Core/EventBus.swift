@@ -160,7 +160,7 @@ final class EventBus: ObservableObject {
 private extension CodexSessionState {
     var shouldPromoteToFront: Bool {
         switch self {
-        case .thinking, .streaming, .awaitingInput:
+        case .thinking, .working, .streaming, .awaitingInput:
             return true
         case .idle, .error:
             return false
@@ -171,6 +171,8 @@ private extension CodexSessionState {
         switch self {
         case .awaitingInput:
             return 4
+        case .working:
+            return 3
         case .streaming:
             return 3
         case .thinking:

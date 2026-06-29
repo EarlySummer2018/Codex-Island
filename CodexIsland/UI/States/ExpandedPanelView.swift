@@ -156,7 +156,7 @@ struct ExpandedPanelView: View {
     private var evolutionConsole: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline) {
-                Text("Evolution Exp")
+                Text(evolutionTitle)
                     .font(.system(size: 10, weight: .medium, design: .monospaced))
                     .foregroundStyle(PanelPalette.text)
 
@@ -171,7 +171,7 @@ struct ExpandedPanelView: View {
                 .frame(height: 7)
 
             HStack {
-                Text("\(TokenFormatter.format(globalTotal)) consumed")
+                Text(consumedText)
                     .font(.system(size: 8, weight: .regular, design: .monospaced))
                     .foregroundStyle(PanelPalette.textDim)
                     .lineLimit(1)
@@ -187,9 +187,9 @@ struct ExpandedPanelView: View {
             }
 
             HStack(spacing: 6) {
-                ConsoleStat(title: "TURN", value: turnText, color: PanelPalette.cyan)
-                ConsoleStat(title: "OUT", value: TokenFormatter.format(store.totalOutput), color: TokenColors.output)
-                ConsoleStat(title: "ALL", value: TokenFormatter.format(store.totalTokens), color: PanelPalette.magenta)
+                ConsoleStat(title: turnTitle, value: turnText, color: PanelPalette.cyan)
+                ConsoleStat(title: outputTitle, value: TokenFormatter.format(store.totalOutput), color: TokenColors.output)
+                ConsoleStat(title: totalTitle, value: TokenFormatter.format(store.totalTokens), color: PanelPalette.magenta)
             }
 
             HStack(spacing: 6) {
@@ -302,10 +302,66 @@ struct ExpandedPanelView: View {
 
     private var nextTokenText: String {
         guard let nextStage else {
-            return "MAX"
+            return maxProgressText
         }
 
         return "\(TokenFormatter.format(nextStage.threshold)) tokens"
+    }
+
+    private var evolutionTitle: String {
+        switch settings.language {
+        case .chinese:
+            return "进化经验"
+        case .english:
+            return "Evolution Exp"
+        }
+    }
+
+    private var consumedText: String {
+        let value = TokenFormatter.format(globalTotal)
+
+        switch settings.language {
+        case .chinese:
+            return "已消耗 \(value)"
+        case .english:
+            return "\(value) consumed"
+        }
+    }
+
+    private var maxProgressText: String {
+        switch settings.language {
+        case .chinese:
+            return "已满"
+        case .english:
+            return "MAX"
+        }
+    }
+
+    private var turnTitle: String {
+        switch settings.language {
+        case .chinese:
+            return "轮次"
+        case .english:
+            return "TURN"
+        }
+    }
+
+    private var totalTitle: String {
+        switch settings.language {
+        case .chinese:
+            return settings.text(.total)
+        case .english:
+            return "ALL"
+        }
+    }
+
+    private var outputTitle: String {
+        switch settings.language {
+        case .chinese:
+            return settings.text(.output)
+        case .english:
+            return "OUT"
+        }
     }
 
     private var stageLabel: String {
@@ -362,7 +418,7 @@ struct ExpandedPanelView: View {
 
     private var primaryStatText: String {
         let tokenText = TokenFormatter.format(max(globalTotal, store.totalTokens))
-        return "\(tokenText) Tokens"
+        return "\(tokenText) tokens"
     }
 
     private var footerText: String {
@@ -382,6 +438,8 @@ struct ExpandedPanelView: View {
         case .idle:
             return PanelPalette.textMuted
         case .thinking:
+            return TokenColors.uncached
+        case .working:
             return TokenColors.uncached
         case .streaming:
             return PanelPalette.cyan
@@ -414,6 +472,8 @@ struct ExpandedPanelView: View {
             return settings.text(.idle)
         case .thinking:
             return settings.text(.thinking)
+        case .working:
+            return settings.text(.working)
         case .streaming:
             return settings.text(.streaming)
         case .awaitingInput:

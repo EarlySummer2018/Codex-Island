@@ -39,6 +39,7 @@ enum AppTextKey {
     case quit
     case idle
     case thinking
+    case working
     case streaming
     case awaitingInput
     case error
@@ -46,6 +47,7 @@ enum AppTextKey {
     case cached
     case uncached
     case output
+    case total
     case noTokenDataYet
     case sessionTotalPrefix
     case sessionTotalSuffix
@@ -117,13 +119,15 @@ final class AppSettingsStore: ObservableObject {
         case .quit: return "退出"
         case .idle: return "空闲"
         case .thinking: return "思考中"
-        case .streaming: return "输出中"
+        case .working: return "处理中"
+        case .streaming: return "回复中"
         case .awaitingInput: return "等待回复"
         case .error: return "错误"
         case .input: return "输入"
         case .cached: return "缓存"
         case .uncached: return "未缓存"
         case .output: return "输出"
+        case .total: return "总计"
         case .noTokenDataYet: return "暂无 token 数据"
         case .sessionTotalPrefix: return "当前会话共 "
         case .sessionTotalSuffix: return " tokens"
@@ -148,13 +152,15 @@ final class AppSettingsStore: ObservableObject {
         case .quit: return "Quit"
         case .idle: return "Idle"
         case .thinking: return "Thinking"
-        case .streaming: return "Streaming"
+        case .working: return "Working"
+        case .streaming: return "Replying"
         case .awaitingInput: return "Awaiting Input"
         case .error: return "Error"
         case .input: return "Input"
         case .cached: return "Cached"
         case .uncached: return "Uncached"
         case .output: return "Output"
+        case .total: return "Total"
         case .noTokenDataYet: return "No token data yet"
         case .sessionTotalPrefix: return "Session total "
         case .sessionTotalSuffix: return " tokens"

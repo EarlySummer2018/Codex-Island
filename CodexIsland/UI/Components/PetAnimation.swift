@@ -55,6 +55,8 @@ enum PetAnimation: String, Equatable {
             return .idleBreathe
         case .thinking:
             return .thinkSweat
+        case .working:
+            return .thinkSweat
         case .streaming:
             return .talkWalk
         case .awaitingInput:
