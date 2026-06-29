@@ -233,6 +233,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
 private enum StatusBarIcon {
     static func makeTemplateImage() -> NSImage {
+        if let image = NSImage(named: "StatusBarIcon") {
+            image.size = NSSize(width: 18, height: 18)
+            image.isTemplate = true
+            image.accessibilityDescription = "Codex Island"
+            return image
+        }
+
         let imageSize = NSSize(width: 18, height: 18)
         let image = NSImage(size: imageSize)
 
