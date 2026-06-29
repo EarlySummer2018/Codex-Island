@@ -41,11 +41,5 @@ struct TokenCard: View {
             RoundedRectangle(cornerRadius: 6, style: .continuous)
                 .stroke(color.opacity(0.18), lineWidth: 1)
         )
-        .overlay(alignment: .top) {
-            Rectangle()
-                .fill(color.opacity(0.42))
-                .frame(height: 1)
-                .padding(.horizontal, 8)
-        }
     }
 }
