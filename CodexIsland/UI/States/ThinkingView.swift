@@ -3,15 +3,19 @@ import SwiftUI
 struct ThinkingView: View {
     var feedTrigger: UUID?
 
+    @ObservedObject private var evolutionStore = PetEvolutionStore.shared
     @State private var dotCount = 1
     @State private var timer: Timer?
 
     var body: some View {
         HStack(spacing: 8) {
             PixelPetView(
-                animationName: .thinkSweat,
+                animationName: PetAnimation.from(state: .thinking, level: evolutionStore.level),
                 size: 22,
-                feedTrigger: feedTrigger
+                form: evolutionStore.currentForm,
+                level: evolutionStore.level,
+                feedTrigger: feedTrigger,
+                levelUpTrigger: evolutionStore.levelUpTrigger
             )
 
             Divider()

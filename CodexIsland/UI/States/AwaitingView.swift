@@ -2,6 +2,7 @@ import SwiftUI
 
 struct AwaitingView: View {
     @ObservedObject private var eventBus = EventBus.shared
+    @ObservedObject private var evolutionStore = PetEvolutionStore.shared
 
     var feedTrigger: UUID?
 
@@ -10,9 +11,12 @@ struct AwaitingView: View {
     var body: some View {
         HStack(spacing: 8) {
             PixelPetView(
-                animationName: .awaitJump,
+                animationName: PetAnimation.from(state: .awaitingInput, level: evolutionStore.level),
                 size: 22,
-                feedTrigger: feedTrigger
+                form: evolutionStore.currentForm,
+                level: evolutionStore.level,
+                feedTrigger: feedTrigger,
+                levelUpTrigger: evolutionStore.levelUpTrigger
             )
 
             Divider()

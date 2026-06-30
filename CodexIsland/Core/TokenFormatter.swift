@@ -2,6 +2,10 @@ import Foundation
 
 enum TokenFormatter {
     static func format(_ count: Int) -> String {
+        format(Int64(count))
+    }
+
+    static func format(_ count: Int64) -> String {
         switch count {
         case 0..<1_000:
             return "\(count)"
@@ -17,6 +21,14 @@ enum TokenFormatter {
     }
 
     static func formatDelta(_ count: Int) -> String {
+        guard count > 0 else {
+            return "0"
+        }
+
+        return "+\(format(count))"
+    }
+
+    static func formatDelta(_ count: Int64) -> String {
         guard count > 0 else {
             return "0"
         }

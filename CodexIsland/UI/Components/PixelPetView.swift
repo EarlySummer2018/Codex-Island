@@ -5,10 +5,10 @@ import SwiftUI
 struct PixelPetView: View {
     let animationName: PetAnimation
     var size: CGFloat = 24
-    var stage: PetEvolutionStage = .egg
-    var prestigeLevel: Int = 0
+    var form: PetForm = .core
+    var level: Int = 0
     var feedTrigger: UUID?
-    var evolutionTrigger: UUID?
+    var levelUpTrigger: UUID?
 
     @State private var currentFrame = 0
     @State private var activeAnimation: PetAnimation = .idleBreathe
@@ -36,14 +36,14 @@ struct PixelPetView: View {
                 return
             }
 
-            startOneShotAnimation(.eatToken)
+            startOneShotAnimation(PetAnimation.feedAnimation(for: level))
         }
-        .onChange(of: evolutionTrigger) { trigger in
+        .onChange(of: levelUpTrigger) { trigger in
             guard trigger != nil else {
                 return
             }
 
-            startOneShotAnimation(.evolveGlow)
+            startOneShotAnimation(PetAnimation.levelUpAnimation(for: level))
         }
         .onDisappear {
             stopAnimation()
@@ -54,10 +54,10 @@ struct PixelPetView: View {
     @ViewBuilder
     private func petFrameView(animation: PetAnimation, frame: Int) -> some View {
         let frameIndex = frame % max(animation.frameCount, 1)
-        let stagedImageName = "pet_\(stage.assetName)_\(animation.rawValue)_\(String(format: "%02d", frameIndex))"
+        let formImageName = "pet_\(form.assetName)_\(animation.rawValue)_\(String(format: "%02d", frameIndex))"
         let imageName = "pet_\(animation.rawValue)_\(String(format: "%02d", frameIndex))"
 
-        if let image = NSImage(named: stagedImageName) ?? NSImage(named: imageName) {
+        if let image = NSImage(named: formImageName) ?? NSImage(named: imageName) {
             Image(nsImage: image)
                 .interpolation(.none)
                 .resizable()
@@ -68,8 +68,8 @@ struct PixelPetView: View {
                 animation: animation,
                 frame: frameIndex,
                 size: size,
-                stage: stage,
-                prestigeLevel: prestigeLevel
+                form: form,
+                level: level
             )
         }
     }
@@ -110,7 +110,7 @@ struct PixelPetView: View {
         animationTimer = timer
         RunLoop.main.add(timer, forMode: .common)
 
-        if animation == .idleBreathe {
+        if animation.isIdleLoop {
             scheduleIdleStretch()
         }
     }
@@ -118,12 +118,12 @@ struct PixelPetView: View {
     private func scheduleIdleStretch() {
         let delay = Double.random(in: 30...90)
         let workItem = DispatchWorkItem {
-            guard animationName == .idleBreathe,
-                  activeAnimation == .idleBreathe else {
+            guard animationName.isIdleLoop,
+                  activeAnimation.isIdleLoop else {
                 return
             }
 
-            startAnimation(.idleStretch) {
+            startAnimation(PetAnimation.idleBreakAnimation(for: level)) {
                 startBaseAnimation(animationName)
             }
         }

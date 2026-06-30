@@ -66,7 +66,7 @@ flowchart LR
 | [global_token_usage.rs](/Applications/APP/Codex-Island/codex-watcher/src/parser/global_token_usage.rs) | 扫描历史 sessions 并维护全局 token 累计 |
 | [unix_socket.rs](/Applications/APP/Codex-Island/codex-watcher/src/ipc/unix_socket.rs) | Unix Socket 服务端，一行一个 JSON 推送给客户端 |
 | [SidecarBridge.swift](/Applications/APP/Codex-Island/CodexIsland/DataLayer/SidecarBridge.swift) | Swift 端 sidecar 生命周期、socket 连接、事件解码与 EventBus 分发 |
-| [PetEvolutionStore.swift](/Applications/APP/Codex-Island/CodexIsland/Core/PetEvolutionStore.swift) | 使用全局 token 驱动宠物进食、阶段和 prestige |
+| [PetEvolutionStore.swift](/Applications/APP/Codex-Island/CodexIsland/Core/PetEvolutionStore.swift) | 使用历史全局 token 累计和后续增量驱动宠物进食、等级和变形阶段 |
 | [AppDelegate.swift](/Applications/APP/Codex-Island/CodexIsland/App/AppDelegate.swift) | App 启停时启动/停止 SidecarBridge，并注册 Debug 观察日志 |
 | [project.yml](/Applications/APP/Codex-Island/project.yml) | XcodeGen 配置，post-build 编译并拷贝 Rust sidecar |
 | [Makefile](/Applications/APP/Codex-Island/Makefile) | `verify` 串联 Rust 测试、IPC smoke test、macOS build；`test-app-runtime` 启动 App 运行验证 |
@@ -113,7 +113,7 @@ Swift 解码为 `GlobalTokenUsageSnapshot`，随后调用：
 PetEvolutionStore.shared.update(with: snapshot)
 ```
 
-`TokenStore` 继续展示当前 active session；`PetEvolutionStore` 只使用全局累计 token 驱动宠物进化。
+`TokenStore` 继续展示当前 active session；`PetEvolutionStore` 首次导入历史全局累计 token，之后根据正向增量继续计算宠物成长等级。
 
 ---
 

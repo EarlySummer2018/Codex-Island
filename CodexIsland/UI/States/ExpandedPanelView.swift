@@ -46,12 +46,12 @@ struct ExpandedPanelView: View {
                     )
 
                 PixelPetView(
-                    animationName: PetAnimation.from(state: eventBus.sessionState),
+                    animationName: PetAnimation.from(state: eventBus.sessionState, level: evolutionStore.level),
                     size: 30,
-                    stage: evolutionStore.stage,
-                    prestigeLevel: evolutionStore.prestigeLevel,
+                    form: evolutionStore.currentForm,
+                    level: evolutionStore.level,
                     feedTrigger: evolutionStore.feedTrigger,
-                    evolutionTrigger: evolutionStore.evolutionTrigger
+                    levelUpTrigger: evolutionStore.levelUpTrigger
                 )
             }
             .frame(width: 38, height: 38)
@@ -72,7 +72,7 @@ struct ExpandedPanelView: View {
             Spacer(minLength: 0)
 
             HStack(spacing: 6) {
-                Text(stageLabel)
+                Text(levelLabel)
                     .font(.system(size: 9, weight: .bold, design: .rounded))
                     .foregroundStyle(PanelPalette.text)
                     .lineLimit(1)
@@ -126,16 +126,16 @@ struct ExpandedPanelView: View {
             Spacer(minLength: 4)
 
             PixelPetView(
-                animationName: PetAnimation.from(state: eventBus.sessionState),
+                animationName: PetAnimation.from(state: eventBus.sessionState, level: evolutionStore.level),
                 size: 82,
-                stage: evolutionStore.stage,
-                prestigeLevel: evolutionStore.prestigeLevel,
+                form: evolutionStore.currentForm,
+                level: evolutionStore.level,
                 feedTrigger: evolutionStore.feedTrigger,
-                evolutionTrigger: evolutionStore.evolutionTrigger
+                levelUpTrigger: evolutionStore.levelUpTrigger
             )
 
             HStack(spacing: 8) {
-                MetricChip(title: "E", value: evolutionPercentText, color: PanelPalette.magenta)
+                MetricChip(title: "LV", value: "\(evolutionStore.level)", color: PanelPalette.magenta)
                 MetricChip(title: "C", value: store.cacheHitPercent, color: PanelPalette.cyan)
             }
 
@@ -274,32 +274,8 @@ struct ExpandedPanelView: View {
         evolutionStore.globalUsage?.totalTokens ?? store.totalTokens
     }
 
-    private var currentStageIndex: Int {
-        PetEvolutionStage.allCases.firstIndex(of: evolutionStore.stage) ?? 0
-    }
-
-    private var nextStage: PetEvolutionStage? {
-        let nextIndex = currentStageIndex + 1
-        guard PetEvolutionStage.allCases.indices.contains(nextIndex) else {
-            return nil
-        }
-
-        return PetEvolutionStage.allCases[nextIndex]
-    }
-
     private var evolutionProgress: Double {
-        guard let nextStage else {
-            return 1
-        }
-
-        let start = evolutionStore.stage.threshold
-        let target = nextStage.threshold
-        guard target > start else {
-            return 1
-        }
-
-        let progress = Double(globalTotal - start) / Double(target - start)
-        return min(max(progress, 0), 1)
+        evolutionStore.levelProgress
     }
 
     private var evolutionPercentText: String {
@@ -307,30 +283,35 @@ struct ExpandedPanelView: View {
     }
 
     private var nextTokenText: String {
-        guard let nextStage else {
+        guard let tokensToNext = evolutionStore.tokensToNextLevel else {
             return maxProgressText
         }
 
-        return "\(TokenFormatter.format(nextStage.threshold)) tokens"
+        switch settings.language {
+        case .chinese:
+            return "距 Lv.\(evolutionStore.level + 1) \(TokenFormatter.format(tokensToNext))"
+        case .english:
+            return "\(TokenFormatter.format(tokensToNext)) to Lv.\(evolutionStore.level + 1)"
+        }
     }
 
     private var evolutionTitle: String {
         switch settings.language {
         case .chinese:
-            return "进化经验"
+            return "等级经验"
         case .english:
-            return "Evolution Exp"
+            return "Level Exp"
         }
     }
 
     private var consumedText: String {
-        let value = TokenFormatter.format(globalTotal)
+        let value = TokenFormatter.format(evolutionStore.earnedTokens)
 
         switch settings.language {
         case .chinese:
-            return "已消耗 \(value)"
+            return "成长累计 \(value)"
         case .english:
-            return "\(value) consumed"
+            return "\(value) growth tokens"
         }
     }
 
@@ -370,39 +351,8 @@ struct ExpandedPanelView: View {
         }
     }
 
-    private var stageLabel: String {
-        switch settings.language {
-        case .chinese:
-            switch evolutionStore.stage {
-            case .egg:
-                return "蛋"
-            case .hatchling:
-                return "幼体"
-            case .sproutDrake:
-                return "幼龙"
-            case .glider:
-                return "飞龙"
-            case .guardian:
-                return "守卫"
-            case .ancient:
-                return "古龙"
-            }
-        case .english:
-            switch evolutionStore.stage {
-            case .egg:
-                return "EGG"
-            case .hatchling:
-                return "HATCH"
-            case .sproutDrake:
-                return "DRAKE"
-            case .glider:
-                return "GLIDE"
-            case .guardian:
-                return "GUARD"
-            case .ancient:
-                return "ANCIENT"
-            }
-        }
+    private var levelLabel: String {
+        "Lv.\(evolutionStore.level)"
     }
 
     private var dragHelpText: String {
@@ -423,8 +373,14 @@ struct ExpandedPanelView: View {
     }
 
     private var primaryStatText: String {
-        let tokenText = TokenFormatter.format(max(globalTotal, store.totalTokens))
-        return "\(tokenText) tokens"
+        let tokenText = TokenFormatter.format(evolutionStore.earnedTokens)
+
+        switch settings.language {
+        case .chinese:
+            return "Lv.\(evolutionStore.level) · 成长 \(tokenText)"
+        case .english:
+            return "Lv.\(evolutionStore.level) · \(tokenText) growth"
+        }
     }
 
     private var footerText: String {

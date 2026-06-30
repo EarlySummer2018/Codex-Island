@@ -9,10 +9,10 @@ struct StreamingView: View {
         HStack(spacing: 10) {
             RoamingPetView(
                 animationName: animationName,
-                stage: evolutionStore.stage,
-                prestigeLevel: evolutionStore.prestigeLevel,
+                form: evolutionStore.currentForm,
+                level: evolutionStore.level,
                 feedTrigger: evolutionStore.feedTrigger,
-                evolutionTrigger: evolutionStore.evolutionTrigger
+                levelUpTrigger: evolutionStore.levelUpTrigger
             )
 
             TokenInfoRow(style: settings.capsuleStyle)

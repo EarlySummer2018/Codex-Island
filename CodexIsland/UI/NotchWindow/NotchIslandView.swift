@@ -8,6 +8,7 @@ final class NotchIslandContentModel: ObservableObject {
 
 struct NotchIslandView: View {
     @ObservedObject private var eventBus = EventBus.shared
+    @ObservedObject private var evolutionStore = PetEvolutionStore.shared
     @ObservedObject var model: NotchIslandContentModel
     let onRestingShapeChanged: (IslandShape) -> Void
 
@@ -60,7 +61,7 @@ struct NotchIslandView: View {
     }
 
     private var petAnimation: PetAnimation {
-        PetAnimation.from(state: eventBus.sessionState)
+        PetAnimation.from(state: eventBus.sessionState, level: evolutionStore.level)
     }
 
     private var cornerRadius: CGFloat {
