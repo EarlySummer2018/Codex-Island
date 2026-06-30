@@ -35,6 +35,10 @@ enum AppTextKey {
     case openCacheDirectory
     case openCodexSessions
     case openCodex
+    case checkForUpdates
+    case checkingForUpdates
+    case downloadingUpdate
+    case restartToUpdate
     case resetCapsulePosition
     case quit
     case idle
@@ -115,6 +119,10 @@ final class AppSettingsStore: ObservableObject {
         case .openCacheDirectory: return "打开缓存目录"
         case .openCodexSessions: return "打开 Codex 会话目录"
         case .openCodex: return "打开 Codex"
+        case .checkForUpdates: return "检查更新..."
+        case .checkingForUpdates: return "正在检查更新..."
+        case .downloadingUpdate: return "下载中..."
+        case .restartToUpdate: return "重启以更新"
         case .resetCapsulePosition: return "重置胶囊位置"
         case .quit: return "退出"
         case .idle: return "空闲"
@@ -148,6 +156,10 @@ final class AppSettingsStore: ObservableObject {
         case .openCacheDirectory: return "Open Cache Directory"
         case .openCodexSessions: return "Open Codex Sessions"
         case .openCodex: return "Open Codex"
+        case .checkForUpdates: return "Check for Updates..."
+        case .checkingForUpdates: return "Checking for Updates..."
+        case .downloadingUpdate: return "Downloading..."
+        case .restartToUpdate: return "Restart to Update"
         case .resetCapsulePosition: return "Reset Capsule Position"
         case .quit: return "Quit"
         case .idle: return "Idle"

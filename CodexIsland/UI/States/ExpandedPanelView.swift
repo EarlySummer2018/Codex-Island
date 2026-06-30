@@ -14,23 +14,24 @@ struct ExpandedPanelView: View {
 
             if eventBus.isAwaitingInput {
                 AwaitingDetailPanel(reason: eventBus.awaitReason)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
+                    .padding(.horizontal, PanelMetrics.horizontalPadding)
+                    .padding(.vertical, PanelMetrics.contentTopPadding)
 
                 neonDivider
             }
 
-            mainDeck
-                .padding(.horizontal, 14)
-                .padding(.top, 12)
+            VStack(spacing: 0) {
+                mainDeck
 
-            tokenGrid
-                .padding(.horizontal, 14)
-                .padding(.top, 10)
+                tokenGrid
+                    .padding(.top, PanelMetrics.mainToTokenGap)
 
-            footer
-                .padding(.horizontal, 14)
-                .padding(.top, 8)
+                footer
+                    .padding(.top, PanelMetrics.footerTopPadding)
+                    .padding(.bottom, PanelMetrics.footerBottomPadding)
+            }
+            .padding(.horizontal, PanelMetrics.horizontalPadding)
+            .padding(.top, PanelMetrics.contentTopPadding)
         }
     }
 
@@ -62,7 +63,7 @@ struct ExpandedPanelView: View {
                     .lineLimit(1)
 
                 Text(subtitle)
-                    .font(.system(size: 9, weight: .regular, design: .monospaced))
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
                     .foregroundStyle(PanelPalette.textMuted)
                     .lineLimit(1)
                     .minimumScaleFactor(0.72)
@@ -72,7 +73,7 @@ struct ExpandedPanelView: View {
 
             HStack(spacing: 6) {
                 Text(stageLabel)
-                    .font(.system(size: 8, weight: .bold, design: .rounded))
+                    .font(.system(size: 9, weight: .bold, design: .rounded))
                     .foregroundStyle(PanelPalette.text)
                     .lineLimit(1)
                     .minimumScaleFactor(0.72)
@@ -92,7 +93,7 @@ struct ExpandedPanelView: View {
             )
             .help(dragHelpText)
         }
-        .padding(.horizontal, 14)
+        .padding(.horizontal, PanelMetrics.horizontalPadding)
         .frame(height: 64)
     }
 
@@ -113,22 +114,20 @@ struct ExpandedPanelView: View {
     }
 
     private var mainDeck: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: PanelMetrics.mainDeckGap) {
             petShowcase
-                .frame(width: 162, height: 122)
 
             evolutionConsole
-                .frame(maxWidth: .infinity, minHeight: 122, maxHeight: 122)
         }
     }
 
     private var petShowcase: some View {
-        VStack(spacing: 8) {
-            Spacer(minLength: 0)
+        VStack(spacing: 6) {
+            Spacer(minLength: 4)
 
             PixelPetView(
                 animationName: PetAnimation.from(state: eventBus.sessionState),
-                size: 74,
+                size: 82,
                 stage: evolutionStore.stage,
                 prestigeLevel: evolutionStore.prestigeLevel,
                 feedTrigger: evolutionStore.feedTrigger,
@@ -140,9 +139,10 @@ struct ExpandedPanelView: View {
                 MetricChip(title: "C", value: store.cacheHitPercent, color: PanelPalette.cyan)
             }
 
-            Spacer(minLength: 0)
+            Spacer(minLength: 8)
         }
-        .padding(10)
+        .padding(8)
+        .frame(width: PanelMetrics.petColumnWidth, height: PanelMetrics.mainDeckHeight)
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(PanelPalette.surface)
@@ -157,7 +157,7 @@ struct ExpandedPanelView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline) {
                 Text(evolutionTitle)
-                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
                     .foregroundStyle(PanelPalette.text)
 
                 Spacer(minLength: 0)
@@ -172,16 +172,16 @@ struct ExpandedPanelView: View {
 
             HStack {
                 Text(consumedText)
-                    .font(.system(size: 8, weight: .regular, design: .monospaced))
-                    .foregroundStyle(PanelPalette.textDim)
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(PanelPalette.textMuted)
                     .lineLimit(1)
                     .minimumScaleFactor(0.72)
 
                 Spacer(minLength: 0)
 
                 Text(nextTokenText)
-                    .font(.system(size: 8, weight: .regular, design: .monospaced))
-                    .foregroundStyle(PanelPalette.textDim)
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(PanelPalette.textMuted)
                     .lineLimit(1)
                     .minimumScaleFactor(0.72)
             }
@@ -209,6 +209,7 @@ struct ExpandedPanelView: View {
             )
         }
         .padding(12)
+        .frame(maxWidth: .infinity, minHeight: PanelMetrics.mainDeckHeight, maxHeight: PanelMetrics.mainDeckHeight)
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(PanelPalette.surface.opacity(0.72))
@@ -231,7 +232,7 @@ struct ExpandedPanelView: View {
             TokenCard(title: settings.text(.uncached), value: store.totalUncachedInput, color: TokenColors.uncached)
             TokenCard(title: settings.text(.output), value: store.totalOutput, color: TokenColors.output)
         }
-        .frame(height: 54)
+        .frame(height: 56)
     }
 
     private var footer: some View {
@@ -241,19 +242,24 @@ struct ExpandedPanelView: View {
                 .frame(width: 5, height: 5)
 
             Text(footerText)
-                .font(.system(size: 8, weight: .regular, design: .monospaced))
-                .foregroundStyle(PanelPalette.textDim)
+                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                .foregroundStyle(PanelPalette.textMuted)
                 .lineLimit(1)
                 .minimumScaleFactor(0.72)
 
             Spacer(minLength: 0)
 
             Text(cacheSummary)
-                .font(.system(size: 8, weight: .medium, design: .monospaced))
-                .foregroundStyle(PanelPalette.textMuted)
+                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                .foregroundStyle(PanelPalette.text)
+                .lineLimit(1)
+
+            Text(versionText)
+                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                .foregroundStyle(PanelPalette.textDim)
                 .lineLimit(1)
         }
-        .frame(height: 18)
+        .frame(height: 20)
     }
 
     private var subtitle: String {
@@ -433,6 +439,11 @@ struct ExpandedPanelView: View {
         "\(settings.text(.cached)) \(store.cacheHitPercent)"
     }
 
+    private var versionText: String {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
+        return "v\(version)"
+    }
+
     private var statusColor: Color {
         switch eventBus.sessionState {
         case .idle:
@@ -484,6 +495,17 @@ struct ExpandedPanelView: View {
     }
 }
 
+private enum PanelMetrics {
+    static let horizontalPadding: CGFloat = 14
+    static let contentTopPadding: CGFloat = 8
+    static let mainDeckHeight: CGFloat = 122
+    static let mainDeckGap: CGFloat = 8
+    static let mainToTokenGap: CGFloat = 8
+    static let footerTopPadding: CGFloat = 4
+    static let footerBottomPadding: CGFloat = 6
+    static let petColumnWidth: CGFloat = 132
+}
+
 private enum PanelPalette {
     static let surface = Color(red: 0.035, green: 0.035, blue: 0.045)
     static let control = Color(red: 0.10, green: 0.10, blue: 0.12)
@@ -491,9 +513,9 @@ private enum PanelPalette {
     static let magenta = Color(red: 1.0, green: 0.20, blue: 0.56)
     static let purple = Color(red: 0.52, green: 0.25, blue: 0.95)
     static let cyan = Color(red: 0.28, green: 0.88, blue: 0.78)
-    static let text = Color.white.opacity(0.86)
-    static let textMuted = Color.white.opacity(0.56)
-    static let textDim = Color.white.opacity(0.35)
+    static let text = Color.white.opacity(0.90)
+    static let textMuted = Color.white.opacity(0.68)
+    static let textDim = Color.white.opacity(0.50)
 }
 
 private struct MetricChip: View {
@@ -503,12 +525,12 @@ private struct MetricChip: View {
 
     var body: some View {
         Text("\(title)=\(value)")
-            .font(.system(size: 8, weight: .medium, design: .monospaced))
+            .font(.system(size: 9, weight: .semibold, design: .monospaced))
             .foregroundStyle(color.opacity(0.88))
             .lineLimit(1)
             .minimumScaleFactor(0.72)
             .padding(.horizontal, 7)
-            .frame(height: 18)
+            .frame(height: 19)
             .background(
                 RoundedRectangle(cornerRadius: 4, style: .continuous)
                     .fill(Color.black.opacity(0.34))
@@ -528,18 +550,18 @@ private struct ConsoleStat: View {
     var body: some View {
         VStack(spacing: 2) {
             Text(title)
-                .font(.system(size: 6, weight: .bold, design: .monospaced))
+                .font(.system(size: 7, weight: .bold, design: .monospaced))
                 .foregroundStyle(PanelPalette.textDim)
                 .lineLimit(1)
 
             Text(value)
-                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
                 .foregroundStyle(color)
                 .lineLimit(1)
                 .minimumScaleFactor(0.72)
         }
         .frame(maxWidth: .infinity)
-        .frame(height: 27)
+        .frame(height: 28)
         .background(
             RoundedRectangle(cornerRadius: 5, style: .continuous)
                 .fill(PanelPalette.control.opacity(0.78))

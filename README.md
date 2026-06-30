@@ -10,7 +10,7 @@ Codex Island is a small macOS companion for Codex Desktop. It watches local Code
 - Pixel pet that reacts to Codex states: idle, thinking, streaming, waiting for input, and error.
 - Pet evolution driven by global token usage across all local Codex sessions.
 - Long-press dragging with per-display position persistence.
-- Menu bar controls for capsule size, language, cache folders, Codex activation, and app visibility.
+- Menu bar controls for capsule size, language, cache folders, Codex activation, updates, and app visibility.
 - Rust sidecar that reads only token and state metadata from `~/.codex/sessions`, without forwarding prompt or response text.
 
 ## Requirements

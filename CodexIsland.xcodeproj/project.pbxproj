@@ -35,6 +35,7 @@
 		C4F7630C32BA280EABF783C1 /* IslandShape.swift in Sources */ = {isa = PBXBuildFile; fileRef = 468F97FDA96EC3D9C2E36C6B /* IslandShape.swift */; };
 		C7260F498FC32CC28A369268 /* TokenColors.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8DF0B723E3D84037BC45675 /* TokenColors.swift */; };
 		D04886CD651F4075279C9D1F /* IdleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 800B32207E6C3BDCD828A429 /* IdleView.swift */; };
+		D98F65C6FFD17B124DD3CDAA /* AppUpdateManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F781DF094D2AEC1409C65319 /* AppUpdateManager.swift */; };
 		DA05BE984A9DEE3302E31353 /* AwaitNotificationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE661BFE7D2A68428BE79B6B /* AwaitNotificationCoordinator.swift */; };
 		DDE9C64359ECE3DCD3369F52 /* AnimatedTokenCounter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24D58AA45F6BFDA841CBFFBF /* AnimatedTokenCounter.swift */; };
 		DE8E142BF93C8D1940D88981 /* AwaitReasonLabel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 112456629956FDAA474AF77A /* AwaitReasonLabel.swift */; };
@@ -78,6 +79,7 @@
 		D1FF36B2CD89161DAC3D865E /* TokenStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TokenStore.swift; sourceTree = "<group>"; };
 		EE0208DA1008D3B62CB34C79 /* RoamingPetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoamingPetView.swift; sourceTree = "<group>"; };
 		EE661BFE7D2A68428BE79B6B /* AwaitNotificationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AwaitNotificationCoordinator.swift; sourceTree = "<group>"; };
+		F781DF094D2AEC1409C65319 /* AppUpdateManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppUpdateManager.swift; sourceTree = "<group>"; };
 		F8DF0B723E3D84037BC45675 /* TokenColors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TokenColors.swift; sourceTree = "<group>"; };
 		FAAF6D4D5443F680AD5D0966 /* AppSettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettingsStore.swift; sourceTree = "<group>"; };
 		FBE8CCB3350C6D184EE29C32 /* PixelPetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PixelPetView.swift; sourceTree = "<group>"; };
@@ -141,6 +143,7 @@
 			isa = PBXGroup;
 			children = (
 				FAAF6D4D5443F680AD5D0966 /* AppSettingsStore.swift */,
+				F781DF094D2AEC1409C65319 /* AppUpdateManager.swift */,
 				EE661BFE7D2A68428BE79B6B /* AwaitNotificationCoordinator.swift */,
 				67B9864416484146664D556B /* CodexActivation.swift */,
 				82F6E74CEA999AB8E61CEBAD /* EventBus.swift */,
@@ -295,6 +298,7 @@
 				DDE9C64359ECE3DCD3369F52 /* AnimatedTokenCounter.swift in Sources */,
 				919377AB73F80CAAEB65A4A7 /* AppDelegate.swift in Sources */,
 				1A11DCA4AC06CE7F0ED7A300 /* AppSettingsStore.swift in Sources */,
+				D98F65C6FFD17B124DD3CDAA /* AppUpdateManager.swift in Sources */,
 				DA05BE984A9DEE3302E31353 /* AwaitNotificationCoordinator.swift in Sources */,
 				DE8E142BF93C8D1940D88981 /* AwaitReasonLabel.swift in Sources */,
 				59E11D711F9F026C41CA42DA /* AwaitingDetailPanel.swift in Sources */,
@@ -420,7 +424,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 0.1.0;
+				MARKETING_VERSION = 0.1.4;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -484,7 +488,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 0.1.0;
+				MARKETING_VERSION = 0.1.4;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

@@ -15,6 +15,7 @@ final class NotchIslandPanel: NSPanel {
     private var isDragging = false
     private var dragStartMouseLocation: NSPoint = .zero
     private var dragStartFrame: NSRect = .zero
+    private var dragResistanceScreen: NSScreen?
     private var cancellables = Set<AnyCancellable>()
 
     private init() {
@@ -82,11 +83,14 @@ final class NotchIslandPanel: NSPanel {
             return
         }
 
-        relayout(animated: false)
+        resetInteractionStateForVisibility()
+        relayout(animated: false, anchorsToCurrentTopEdge: false)
         orderFrontRegardless()
     }
 
     func hide() {
+        isDragging = false
+        isPressingForDrag = false
         orderOut(nil)
     }
 
@@ -258,19 +262,26 @@ final class NotchIslandPanel: NSPanel {
         isDragging = true
         dragStartMouseLocation = location
         dragStartFrame = frame
+        dragResistanceScreen = screen(containing: frame)
+            ?? screen(withLargestIntersection: frame)
+            ?? targetScreen()
         setPressingForDrag(true)
     }
 
     private func drag(to location: NSPoint) {
-        guard isDragging,
-              let screen = screen(containing: dragStartFrame) ?? targetScreen() else {
+        guard isDragging else {
             return
         }
 
         let deltaX = location.x - dragStartMouseLocation.x
         let deltaY = location.y - dragStartMouseLocation.y
         let proposedFrame = dragStartFrame.offsetBy(dx: deltaX, dy: deltaY)
-        setFrame(clampedFrame(proposedFrame, on: screen), display: true)
+
+        let bounds = virtualDragFrame()
+            ?? targetScreen().map { usableFrame(for: $0) }
+            ?? proposedFrame
+        let resistedFrame = frameAfterApplyingDisplayBoundaryResistance(to: proposedFrame)
+        setFrame(clampedFrame(resistedFrame, in: bounds), display: true)
     }
 
     private func endDrag() {
@@ -279,6 +290,7 @@ final class NotchIslandPanel: NSPanel {
         }
 
         isDragging = false
+        dragResistanceScreen = nil
         setPressingForDrag(false)
         saveCurrentPosition()
     }
@@ -292,16 +304,22 @@ final class NotchIslandPanel: NSPanel {
     }
 
     private func saveCurrentPosition() {
-        guard let screen = screen(containing: frame) ?? targetScreen() else {
+        guard let screen = screen(containing: NSPoint(x: frame.midX, y: frame.midY))
+            ?? screen(withLargestIntersection: frame)
+            ?? targetScreen() else {
             return
         }
 
-        let adjustedFrame = clampedFrame(frame, on: screen)
-        if adjustedFrame != frame {
-            setFrame(adjustedFrame, display: true)
-        }
+        positionStore.save(frame: frame, on: screen, usableFrame: usableFrame(for: screen))
+    }
 
-        positionStore.save(frame: frame, on: screen)
+    private func resetInteractionStateForVisibility() {
+        isHovered = false
+        isPressingForDrag = false
+        isDragging = false
+        currentShape = restingShape
+        contentModel.isExpanded = false
+        contentModel.isExpandedContainer = false
     }
 
     private func relayout(
@@ -349,22 +367,19 @@ final class NotchIslandPanel: NSPanel {
     }
 
     private func targetScreen() -> NSScreen? {
-        if let builtInScreen = NSScreen.screens.first(where: { screen in
-            guard let displayID = screen.displayID else {
-                return false
-            }
-            return CGDisplayIsBuiltin(displayID) != 0
-        }) {
-            return builtInScreen
+        let screens = NSScreen.screens
+
+        if let savedScreen = positionStore.preferredScreen(in: screens) {
+            return savedScreen
         }
 
-        if let notchedScreen = NSScreen.screens.first(where: { screen in
-            screen.hasAuxiliaryTopAreas
-        }) {
-            return notchedScreen
-        }
+        return primaryScreen(from: screens)
+    }
 
-        return NSScreen.main ?? NSScreen.screens.first
+    private func primaryScreen(from screens: [NSScreen]) -> NSScreen? {
+        screens.first { screen in
+            screen.frame.origin == .zero
+        } ?? NSScreen.main ?? screens.first
     }
 
     private func calculateNotchFrame(for screen: NSScreen) -> NSRect {
@@ -391,9 +406,10 @@ final class NotchIslandPanel: NSPanel {
     }
 
     private func fallbackNotchFrame(for screen: NSScreen) -> NSRect {
-        NSRect(
-            x: screen.frame.midX - IslandShape.fallbackCompactSize.width / 2,
-            y: screen.frame.maxY - IslandShape.fallbackCompactSize.height,
+        let usableFrame = usableFrame(for: screen)
+        return NSRect(
+            x: usableFrame.midX - IslandShape.fallbackCompactSize.width / 2,
+            y: usableFrame.maxY - IslandShape.fallbackCompactSize.height,
             width: IslandShape.fallbackCompactSize.width,
             height: IslandShape.fallbackCompactSize.height
         )
@@ -418,9 +434,10 @@ final class NotchIslandPanel: NSPanel {
         notchFrame: NSRect,
         screen: NSScreen
     ) -> NSRect {
+        let usableFrame = usableFrame(for: screen)
         var size = shape.size(fitting: notchFrame, capsuleStyle: settings.capsuleStyle)
-        size.width = min(size.width, screen.frame.width)
-        size.height = min(size.height, screen.frame.height - IslandShape.topInset)
+        size.width = min(size.width, usableFrame.width)
+        size.height = min(size.height, usableFrame.height - IslandShape.topGap)
 
         let x = clampedX(
             centeredAt: notchFrame.midX,
@@ -428,7 +445,7 @@ final class NotchIslandPanel: NSPanel {
             screen: screen
         )
 
-        if let savedOrigin = positionStore.origin(for: size, on: screen) {
+        if let savedOrigin = positionStore.origin(for: size, on: screen, usableFrame: usableFrame) {
             return NSRect(origin: savedOrigin, size: size)
         }
 
@@ -436,14 +453,14 @@ final class NotchIslandPanel: NSPanel {
         case .compact, .pill:
             return NSRect(
                 x: x,
-                y: screen.frame.maxY - IslandShape.topInset - size.height,
+                y: usableFrame.maxY - IslandShape.topGap - size.height,
                 width: size.width,
                 height: size.height
             )
         case .expanded:
             return NSRect(
                 x: x,
-                y: screen.frame.maxY - IslandShape.topInset - size.height,
+                y: usableFrame.maxY - IslandShape.topGap - size.height,
                 width: size.width,
                 height: size.height
             )
@@ -451,24 +468,36 @@ final class NotchIslandPanel: NSPanel {
     }
 
     private func clampedX(centeredAt centerX: CGFloat, width: CGFloat, screen: NSScreen) -> CGFloat {
+        let usableFrame = usableFrame(for: screen)
         let proposedX = centerX - width / 2
-        let minX = screen.frame.minX
-        let maxX = screen.frame.maxX - width
+        let minX = usableFrame.minX
+        let maxX = usableFrame.maxX - width
         return min(max(proposedX, minX), maxX)
     }
 
     private func screen(containing rect: NSRect) -> NSScreen? {
         let center = NSPoint(x: rect.midX, y: rect.midY)
+        return screen(containing: center)
+    }
+
+    private func screen(containing point: NSPoint) -> NSScreen? {
         return NSScreen.screens.first { screen in
-            screen.frame.contains(center)
+            screen.frame.contains(point)
+        }
+    }
+
+    private func screen(withLargestIntersection rect: NSRect) -> NSScreen? {
+        NSScreen.screens.max { lhs, rhs in
+            lhs.frame.intersection(rect).area < rhs.frame.intersection(rect).area
         }
     }
 
     private func clampedFrame(_ frame: NSRect, on screen: NSScreen) -> NSRect {
-        let minX = screen.frame.minX
-        let maxX = screen.frame.maxX - frame.width
-        let minY = screen.frame.minY
-        let maxY = screen.frame.maxY - frame.height
+        let usableFrame = usableFrame(for: screen)
+        let minX = usableFrame.minX
+        let maxX = usableFrame.maxX - frame.width
+        let minY = usableFrame.minY
+        let maxY = usableFrame.maxY - frame.height
 
         return NSRect(
             x: min(max(frame.minX, minX), maxX),
@@ -476,6 +505,141 @@ final class NotchIslandPanel: NSPanel {
             width: frame.width,
             height: frame.height
         )
+    }
+
+    private func clampedFrame(_ frame: NSRect, in bounds: NSRect) -> NSRect {
+        let maxX = max(bounds.minX, bounds.maxX - frame.width)
+        let maxY = max(bounds.minY, bounds.maxY - frame.height)
+
+        return NSRect(
+            x: min(max(frame.minX, bounds.minX), maxX),
+            y: min(max(frame.minY, bounds.minY), maxY),
+            width: frame.width,
+            height: frame.height
+        )
+    }
+
+    private func frameAfterApplyingDisplayBoundaryResistance(to proposedFrame: NSRect) -> NSRect {
+        guard NSScreen.screens.count > 1,
+              let resistanceScreen = dragResistanceScreen else {
+            return proposedFrame
+        }
+
+        let usableFrame = usableFrame(for: resistanceScreen)
+        guard let crossing = strongestBoundaryCrossing(
+            proposedFrame,
+            beyond: usableFrame,
+            from: resistanceScreen
+        ) else {
+            return proposedFrame
+        }
+
+        if crossing.penetration >= DragResistance.threshold {
+            dragResistanceScreen = nil
+            return proposedFrame
+        }
+
+        return frameSnapped(
+            proposedFrame,
+            to: crossing.edge,
+            of: usableFrame
+        )
+    }
+
+    private func strongestBoundaryCrossing(
+        _ frame: NSRect,
+        beyond usableFrame: NSRect,
+        from screen: NSScreen
+    ) -> (edge: DragResistanceEdge, penetration: CGFloat)? {
+        let crossings: [(DragResistanceEdge, CGFloat)] = [
+            (.minX, usableFrame.minX - frame.minX),
+            (.maxX, frame.maxX - usableFrame.maxX),
+            (.minY, usableFrame.minY - frame.minY),
+            (.maxY, frame.maxY - usableFrame.maxY)
+        ]
+
+        return crossings
+            .filter { edge, penetration in
+                penetration > 0
+                    && self.screen(across: edge, from: screen, near: frame) != nil
+            }
+            .max { lhs, rhs in
+                lhs.1 < rhs.1
+            }
+    }
+
+    private func frameSnapped(
+        _ frame: NSRect,
+        to edge: DragResistanceEdge,
+        of usableFrame: NSRect
+    ) -> NSRect {
+        var snappedFrame = frame
+
+        switch edge {
+        case .minX:
+            snappedFrame.origin.x = usableFrame.minX
+        case .maxX:
+            snappedFrame.origin.x = usableFrame.maxX - frame.width
+        case .minY:
+            snappedFrame.origin.y = usableFrame.minY
+        case .maxY:
+            snappedFrame.origin.y = usableFrame.maxY - frame.height
+        }
+
+        return snappedFrame
+    }
+
+    private func screen(
+        across edge: DragResistanceEdge,
+        from screen: NSScreen,
+        near frame: NSRect
+    ) -> NSScreen? {
+        let probeOffset: CGFloat = 2
+        let point: NSPoint
+
+        switch edge {
+        case .minX:
+            point = NSPoint(x: screen.frame.minX - probeOffset, y: frame.midY)
+        case .maxX:
+            point = NSPoint(x: screen.frame.maxX + probeOffset, y: frame.midY)
+        case .minY:
+            point = NSPoint(x: frame.midX, y: screen.frame.minY - probeOffset)
+        case .maxY:
+            point = NSPoint(x: frame.midX, y: screen.frame.maxY + probeOffset)
+        }
+
+        return NSScreen.screens.first { candidate in
+            candidate.codexIslandIdentifier != screen.codexIslandIdentifier
+                && candidate.frame.insetBy(dx: -2, dy: -2).contains(point)
+        }
+    }
+
+    private func virtualDragFrame() -> NSRect? {
+        let frames = NSScreen.screens.map { usableFrame(for: $0) }
+        guard var combinedFrame = frames.first else {
+            return nil
+        }
+
+        for frame in frames.dropFirst() {
+            combinedFrame = combinedFrame.union(frame)
+        }
+
+        return combinedFrame
+    }
+
+    private func usableFrame(for screen: NSScreen) -> NSRect {
+        let visibleFrame = screen.visibleFrame
+
+        guard !visibleFrame.isEmpty else {
+            return screen.frame
+        }
+
+        let intersection = visibleFrame.intersection(screen.frame)
+        if intersection.isNull || intersection.isEmpty {
+            return screen.frame
+        }
+
+        return intersection
     }
 
     private func frameAnchoredToCurrentTopEdgeWhenVisible(
@@ -503,32 +667,51 @@ final class NotchIslandPanel: NSPanel {
 
 private final class IslandPositionStore {
     private let keyPrefix = "CodexIsland.NotchIsland.position"
+    private let lastScreenKey = "CodexIsland.NotchIsland.position.lastScreenID"
     private let defaults = UserDefaults.standard
 
-    func origin(for size: NSSize, on screen: NSScreen) -> NSPoint? {
+    func preferredScreen(in screens: [NSScreen]) -> NSScreen? {
+        if let savedScreenID = defaults.string(forKey: lastScreenKey),
+           let screen = screens.first(where: { $0.codexIslandIdentifier == savedScreenID }) {
+            return screen
+        }
+
+        if let nonPrimaryScreen = screens.first(where: { screen in
+            screen.frame.origin != .zero && hasSavedPosition(on: screen)
+        }) {
+            return nonPrimaryScreen
+        }
+
+        return screens.first { screen in
+            hasSavedPosition(on: screen)
+        }
+    }
+
+    func origin(for size: NSSize, on screen: NSScreen, usableFrame: NSRect) -> NSPoint? {
         guard let position = load(for: screen) else {
             return nil
         }
 
-        let maxX = max(screen.frame.width - size.width, 1)
-        let maxY = max(screen.frame.height - size.height, 1)
+        let maxX = max(usableFrame.width - size.width, 1)
+        let maxY = max(usableFrame.height - size.height, 1)
 
         return NSPoint(
-            x: screen.frame.minX + maxX * position.xRatio,
-            y: screen.frame.minY + maxY * position.yRatio
+            x: usableFrame.minX + maxX * position.xRatio,
+            y: usableFrame.minY + maxY * position.yRatio
         )
     }
 
-    func save(frame: NSRect, on screen: NSScreen) {
-        let maxX = max(screen.frame.width - frame.width, 1)
-        let maxY = max(screen.frame.height - frame.height, 1)
+    func save(frame: NSRect, on screen: NSScreen, usableFrame: NSRect) {
+        let maxX = max(usableFrame.width - frame.width, 1)
+        let maxY = max(usableFrame.height - frame.height, 1)
         let position = SavedIslandPosition(
-            xRatio: min(max((frame.minX - screen.frame.minX) / maxX, 0), 1),
-            yRatio: min(max((frame.minY - screen.frame.minY) / maxY, 0), 1)
+            xRatio: min(max((frame.minX - usableFrame.minX) / maxX, 0), 1),
+            yRatio: min(max((frame.minY - usableFrame.minY) / maxY, 0), 1)
         )
 
         if let data = try? JSONEncoder().encode(position) {
             defaults.set(data, forKey: key(for: screen))
+            defaults.set(screen.codexIslandIdentifier, forKey: lastScreenKey)
         }
     }
 
@@ -541,6 +724,11 @@ private final class IslandPositionStore {
             where key.hasPrefix(keyPrefix) {
             defaults.removeObject(forKey: key)
         }
+        defaults.removeObject(forKey: lastScreenKey)
+    }
+
+    private func hasSavedPosition(on screen: NSScreen) -> Bool {
+        defaults.data(forKey: key(for: screen)) != nil
     }
 
     private func load(for screen: NSScreen) -> SavedIslandPosition? {
@@ -565,6 +753,17 @@ private struct SavedIslandPosition: Codable {
     let yRatio: CGFloat
 }
 
+private enum DragResistanceEdge {
+    case minX
+    case maxX
+    case minY
+    case maxY
+}
+
+private enum DragResistance {
+    static let threshold: CGFloat = 28
+}
+
 private extension NSScreen {
     var displayID: CGDirectDisplayID? {
         let key = NSDeviceDescriptionKey("NSScreenNumber")
@@ -578,6 +777,35 @@ private extension NSScreen {
         }
 
         return leftArea.width > 0 && rightArea.width > 0
+    }
+
+    var codexIslandIdentifier: String {
+        guard let displayID else {
+            return "screen-\(Int(frame.minX))-\(Int(frame.minY))-\(Int(frame.width))-\(Int(frame.height))"
+        }
+
+        let vendor = CGDisplayVendorNumber(displayID)
+        let model = CGDisplayModelNumber(displayID)
+        let serial = CGDisplaySerialNumber(displayID)
+        let name = localizedName
+            .replacingOccurrences(of: ".", with: "-")
+            .replacingOccurrences(of: " ", with: "_")
+
+        if vendor != 0 || model != 0 || serial != 0 {
+            return "display-\(vendor)-\(model)-\(serial)-\(name)"
+        }
+
+        return "display-\(displayID)-\(name)"
+    }
+}
+
+private extension NSRect {
+    var area: CGFloat {
+        guard !isNull, !isEmpty else {
+            return 0
+        }
+
+        return width * height
     }
 }
 
@@ -640,7 +868,7 @@ private final class NotchIslandHostingView: NSHostingView<NotchIslandView> {
 
     private func isDragHandlePoint(_ point: NSPoint) -> Bool {
         guard bounds.height >= 80 else {
-            return false
+            return bounds.contains(point)
         }
 
         let handleWidth = min(max(bounds.width * 0.22, 76), 112)

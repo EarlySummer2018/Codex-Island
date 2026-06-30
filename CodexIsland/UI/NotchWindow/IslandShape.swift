@@ -5,7 +5,7 @@ enum IslandShape: Equatable {
     case pill
     case expanded
 
-    static let topInset: CGFloat = 18
+    static let topGap: CGFloat = 6
     static let fallbackCompactSize = CGSize(width: 120, height: 34)
     static let pillSize = CGSize(width: 360, height: 34)
     static let smallPillSize = CGSize(width: 220, height: 34)

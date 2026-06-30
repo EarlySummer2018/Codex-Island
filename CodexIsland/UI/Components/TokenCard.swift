@@ -9,29 +9,29 @@ struct TokenCard: View {
     var body: some View {
         VStack(spacing: 3) {
             Text(title)
-                .font(.system(size: 7, weight: .bold, design: .monospaced))
-                .foregroundStyle(.white.opacity(0.38))
+                .font(.system(size: 8, weight: .bold, design: .monospaced))
+                .foregroundStyle(.white.opacity(0.56))
                 .lineLimit(1)
                 .minimumScaleFactor(0.65)
                 .frame(maxWidth: .infinity)
 
             AnimatedTokenCounter(
                 value: value,
-                font: .system(size: 13, weight: .bold, design: .monospaced),
+                font: .system(size: 14, weight: .bold, design: .monospaced),
                 color: color,
                 alignment: .center
             )
-            .frame(height: 15)
+            .frame(height: 16)
 
             Text(note ?? " ")
-                .font(.system(size: 7, weight: .medium, design: .monospaced))
-                .foregroundStyle(color.opacity(note == nil ? 0 : 0.72))
+                .font(.system(size: 8, weight: .semibold, design: .monospaced))
+                .foregroundStyle(color.opacity(note == nil ? 0 : 0.82))
                 .lineLimit(1)
                 .minimumScaleFactor(0.65)
                 .frame(maxWidth: .infinity)
         }
         .frame(maxWidth: .infinity)
-        .frame(height: 48)
+        .frame(height: 50)
         .padding(.horizontal, 5)
         .background(
             RoundedRectangle(cornerRadius: 6, style: .continuous)

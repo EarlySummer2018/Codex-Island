@@ -6,11 +6,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var statusItem: NSStatusItem?
     private let settings = AppSettingsStore.shared
+    private let updateManager = AppUpdateManager.shared
     private var cancellables = Set<AnyCancellable>()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         setupStatusItem()
+        updateManager.configure()
         AwaitNotificationCoordinator.shared.configure()
 
         // Phase 09 connects the Swift app to the Rust sidecar.
@@ -58,6 +60,27 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.scheduleStatusMenuRebuild()
             }
             .store(in: &cancellables)
+
+        updateManager.$isChecking
+            .dropFirst()
+            .sink { [weak self] _ in
+                self?.scheduleStatusMenuRebuild()
+            }
+            .store(in: &cancellables)
+
+        updateManager.$isDownloading
+            .dropFirst()
+            .sink { [weak self] _ in
+                self?.scheduleStatusMenuRebuild()
+            }
+            .store(in: &cancellables)
+
+        updateManager.$downloadedUpdateURL
+            .dropFirst()
+            .sink { [weak self] _ in
+                self?.scheduleStatusMenuRebuild()
+            }
+            .store(in: &cancellables)
     }
 
     private func scheduleStatusMenuRebuild() {
@@ -98,6 +121,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(NSMenuItem.separator())
 
+        menu.addItem(checkForUpdatesMenuItem())
+
+        menu.addItem(NSMenuItem.separator())
+
         menu.addItem(
             withTitle: settings.text(.resetCapsulePosition),
             action: #selector(resetCapsulePosition),
@@ -133,6 +160,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         return item
     }
 
+    private func checkForUpdatesMenuItem() -> NSMenuItem {
+        let item = NSMenuItem(
+            title: settings.text(updateMenuTitleKey),
+            action: #selector(checkForUpdates),
+            keyEquivalent: ""
+        )
+        item.target = self
+        item.isEnabled = !updateManager.isChecking && !updateManager.isDownloading
+        return item
+    }
+
     private func languageMenuItem() -> NSMenuItem {
         let item = NSMenuItem(title: settings.text(.language), action: nil, keyEquivalent: "")
         let submenu = NSMenu()
@@ -151,8 +189,32 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         return item
     }
 
+    private var updateMenuTitleKey: AppTextKey {
+        if updateManager.downloadedUpdateURL != nil {
+            return .restartToUpdate
+        }
+
+        if updateManager.isDownloading {
+            return .downloadingUpdate
+        }
+
+        if updateManager.isChecking {
+            return .checkingForUpdates
+        }
+
+        return .checkForUpdates
+    }
+
     @objc private func toggleCapsuleVisibility() {
         settings.isCapsuleVisible.toggle()
+
+        if settings.isCapsuleVisible {
+            NotchIslandPanel.shared.show()
+        } else {
+            NotchIslandPanel.shared.hide()
+        }
+
+        scheduleStatusMenuRebuild()
     }
 
     @objc private func selectCapsuleStyle(_ sender: NSMenuItem) {
@@ -191,6 +253,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openCodex() {
         CodexActivation.activate()
+    }
+
+    @objc private func checkForUpdates() {
+        updateManager.performPrimaryUpdateAction()
     }
 
     @objc private func resetCapsulePosition() {
