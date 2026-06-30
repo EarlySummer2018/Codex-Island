@@ -258,6 +258,10 @@ final class AppUpdateManager: ObservableObject {
 
     private func launchAutomaticUpdate(from fileURL: URL) -> Bool {
         do {
+            guard canReplaceCurrentApp(with: fileURL) else {
+                return false
+            }
+
             let directory = try updatesDirectory()
             let scriptURL = directory.appendingPathComponent(
                 "apply-codex-island-update.sh",
@@ -275,14 +279,18 @@ final class AppUpdateManager: ObservableObject {
             )
 
             let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/bin/bash")
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/nohup")
             process.arguments = [
+                "/bin/bash",
                 scriptURL.path,
                 Bundle.main.bundleURL.path,
                 fileURL.path,
                 "\(ProcessInfo.processInfo.processIdentifier)",
                 logURL.path
             ]
+            let nullDevice = FileHandle(forWritingAtPath: "/dev/null")
+            process.standardOutput = nullDevice
+            process.standardError = nullDevice
             try process.run()
             return true
         } catch {
@@ -290,28 +298,62 @@ final class AppUpdateManager: ObservableObject {
         }
     }
 
+    private func canReplaceCurrentApp(with fileURL: URL) -> Bool {
+        let currentAppURL = Bundle.main.bundleURL
+        let parentURL = currentAppURL.deletingLastPathComponent()
+
+        return FileManager.default.fileExists(atPath: fileURL.path)
+            && FileManager.default.fileExists(atPath: currentAppURL.path)
+            && FileManager.default.isWritableFile(atPath: parentURL.path)
+    }
+
     private var automaticUpdateScript: String {
         """
         #!/bin/bash
         set -u
 
-        SCRIPT_PATH="$1"
-        CURRENT_APP="$2"
-        UPDATE_FILE="$3"
-        APP_PID="$4"
-        LOG_FILE="$5"
+        SCRIPT_PATH="$0"
+        CURRENT_APP="${1:-}"
+        UPDATE_FILE="${2:-}"
+        APP_PID="${3:-}"
+        LOG_FILE="${4:-${TMPDIR:-/tmp}/codex-island-update.log}"
 
         exec >> "$LOG_FILE" 2>&1
 
         echo "=== Codex Island update $(/bin/date) ==="
+        echo "Script path: $SCRIPT_PATH"
         echo "Current app: $CURRENT_APP"
         echo "Update file: $UPDATE_FILE"
+        echo "App pid: $APP_PID"
+
+        if [ -z "$CURRENT_APP" ] || [ -z "$UPDATE_FILE" ] || [ -z "$APP_PID" ]; then
+            echo "Update failed: missing update script arguments"
+            exit 64
+        fi
+
+        if [ ! -d "$CURRENT_APP" ]; then
+            echo "Update failed: current app bundle does not exist"
+            /usr/bin/open "$UPDATE_FILE" >/dev/null 2>&1 || /usr/bin/open -R "$UPDATE_FILE" >/dev/null 2>&1 || true
+            exit 66
+        fi
+
+        if [ ! -f "$UPDATE_FILE" ]; then
+            echo "Update failed: downloaded update file does not exist"
+            /usr/bin/open -R "$UPDATE_FILE" >/dev/null 2>&1 || true
+            exit 66
+        fi
 
         APP_NAME="$(/usr/bin/basename "$CURRENT_APP")"
         PARENT_DIR="$(/usr/bin/dirname "$CURRENT_APP")"
         BACKUP_APP="$PARENT_DIR/.${APP_NAME}.previous-update"
         TMP_DIR="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/codex-island-update.XXXXXX")"
         MOUNT_DIR=""
+
+        if [ ! -w "$PARENT_DIR" ]; then
+            echo "Update failed: app directory is not writable: $PARENT_DIR"
+            /usr/bin/open "$UPDATE_FILE" >/dev/null 2>&1 || /usr/bin/open -R "$UPDATE_FILE" >/dev/null 2>&1 || true
+            exit 77
+        fi
 
         cleanup() {
             if [ -n "$MOUNT_DIR" ] && /sbin/mount | /usr/bin/grep -q "on $MOUNT_DIR "; then
@@ -330,6 +372,9 @@ final class AppUpdateManager: ObservableObject {
         fail() {
             echo "Update failed: $1"
             restore_backup
+            if [ -d "$CURRENT_APP" ]; then
+                /usr/bin/open "$CURRENT_APP" >/dev/null 2>&1 || true
+            fi
             /usr/bin/open "$UPDATE_FILE" >/dev/null 2>&1 || /usr/bin/open -R "$UPDATE_FILE" >/dev/null 2>&1 || true
             exit 1
         }
