@@ -4,9 +4,11 @@ set -euo pipefail
 APP_PATH="${1:-build/Release/CodexIsland.app}"
 VERSION="${VERSION:-${GITHUB_REF_NAME:-0.1.0}}"
 VERSION="${VERSION#v}"
+ARTIFACT_SUFFIX="${ARTIFACT_SUFFIX:-}"
+CLEAN_DIST="${CLEAN_DIST:-1}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
-STAGE_DIR="$DIST_DIR/stage"
+STAGE_DIR="$DIST_DIR/stage${ARTIFACT_SUFFIX}"
 APP_NAME="CodexIsland"
 STAGED_APP="$STAGE_DIR/$APP_NAME.app"
 APPLICATIONS_LINK="$STAGE_DIR/Applications"
@@ -21,7 +23,10 @@ if [ ! -d "$APP_PATH" ]; then
   exit 1
 fi
 
-rm -rf "$DIST_DIR"
+if [ "$CLEAN_DIST" = "1" ]; then
+  rm -rf "$DIST_DIR"
+fi
+rm -rf "$STAGE_DIR"
 mkdir -p "$STAGE_DIR"
 cp -R "$APP_PATH" "$STAGED_APP"
 
@@ -78,7 +83,7 @@ notarize_app_if_configured() {
     exit 1
   fi
 
-  local app_notary_zip="$DIST_DIR/$APP_NAME-$VERSION-app-notary.zip"
+  local app_notary_zip="$DIST_DIR/$APP_NAME-$VERSION${ARTIFACT_SUFFIX}-app-notary.zip"
   ditto -c -k --keepParent "$STAGED_APP" "$app_notary_zip"
   notarize_artifact "$app_notary_zip"
   staple_artifact "$STAGED_APP"
@@ -88,9 +93,9 @@ notarize_app_if_configured() {
 sign_app_if_configured
 notarize_app_if_configured
 
-ZIP_PATH="$DIST_DIR/$APP_NAME-$VERSION-macOS.zip"
-DMG_PATH="$DIST_DIR/$APP_NAME-$VERSION-macOS.dmg"
-PKG_PATH="$DIST_DIR/$APP_NAME-$VERSION-macOS.pkg"
+ZIP_PATH="$DIST_DIR/$APP_NAME-$VERSION-macOS${ARTIFACT_SUFFIX}.zip"
+DMG_PATH="$DIST_DIR/$APP_NAME-$VERSION-macOS${ARTIFACT_SUFFIX}.dmg"
+PKG_PATH="$DIST_DIR/$APP_NAME-$VERSION-macOS${ARTIFACT_SUFFIX}.pkg"
 
 ditto -c -k --keepParent "$STAGED_APP" "$ZIP_PATH"
 

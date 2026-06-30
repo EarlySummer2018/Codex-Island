@@ -285,7 +285,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -euo pipefail\nexport PATH=\"$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:$PATH\"\nexport RUSTUP_DIST_SERVER=\"https://static.rust-lang.org\"\nexport RUSTUP_UPDATE_ROOT=\"https://static.rust-lang.org/rustup\"\ncd \"$PROJECT_DIR/codex-watcher\"\nif [ \"${CONFIGURATION:-Debug}\" = \"Release\" ]; then\n  if command -v rustup >/dev/null 2>&1; then\n    if rustup target add aarch64-apple-darwin x86_64-apple-darwin \\\n      && cargo build --release --target aarch64-apple-darwin \\\n      && cargo build --release --target x86_64-apple-darwin \\\n      && lipo -create \\\n        \"$PROJECT_DIR/codex-watcher/target/aarch64-apple-darwin/release/codex-watcher\" \\\n        \"$PROJECT_DIR/codex-watcher/target/x86_64-apple-darwin/release/codex-watcher\" \\\n        -output \"$PROJECT_DIR/codex-watcher/target/release/codex-watcher-universal\"; then\n      SIDECAR_PATH=\"$PROJECT_DIR/codex-watcher/target/release/codex-watcher-universal\"\n    else\n      echo \"Universal Rust sidecar build failed; falling back to current architecture.\"\n      cargo build --release\n      SIDECAR_PATH=\"$PROJECT_DIR/codex-watcher/target/release/codex-watcher\"\n    fi\n  else\n    cargo build --release\n    SIDECAR_PATH=\"$PROJECT_DIR/codex-watcher/target/release/codex-watcher\"\n  fi\nelse\n  cargo build\n  SIDECAR_PATH=\"$PROJECT_DIR/codex-watcher/target/debug/codex-watcher\"\nfi\nmkdir -p \"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH\"\ncp \"$SIDECAR_PATH\" \"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/codex-watcher\"\nchmod +x \"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/codex-watcher\"\n";
+			shellScript = "set -euo pipefail\nexport PATH=\"$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:$PATH\"\nexport RUSTUP_DIST_SERVER=\"https://static.rust-lang.org\"\nexport RUSTUP_UPDATE_ROOT=\"https://static.rust-lang.org/rustup\"\ncd \"$PROJECT_DIR/codex-watcher\"\nif [ \"${CONFIGURATION:-Debug}\" = \"Release\" ]; then\n  command -v rustup >/dev/null 2>&1 || {\n    echo \"rustup is required for Release sidecar builds.\" >&2\n    exit 1\n  }\n\n  case \"${CODEX_ISLAND_SIDECAR_ARCH:-universal}\" in\n    x86_64)\n      rustup target add x86_64-apple-darwin\n      cargo build --release --target x86_64-apple-darwin\n      SIDECAR_PATH=\"$PROJECT_DIR/codex-watcher/target/x86_64-apple-darwin/release/codex-watcher\"\n      ;;\n    arm64)\n      rustup target add aarch64-apple-darwin\n      cargo build --release --target aarch64-apple-darwin\n      SIDECAR_PATH=\"$PROJECT_DIR/codex-watcher/target/aarch64-apple-darwin/release/codex-watcher\"\n      ;;\n    universal|\"\")\n      rustup target add aarch64-apple-darwin x86_64-apple-darwin\n      cargo build --release --target aarch64-apple-darwin\n      cargo build --release --target x86_64-apple-darwin\n      mkdir -p \"$PROJECT_DIR/codex-watcher/target/release\"\n      lipo -create \\\n        \"$PROJECT_DIR/codex-watcher/target/aarch64-apple-darwin/release/codex-watcher\" \\\n        \"$PROJECT_DIR/codex-watcher/target/x86_64-apple-darwin/release/codex-watcher\" \\\n        -output \"$PROJECT_DIR/codex-watcher/target/release/codex-watcher-universal\"\n      SIDECAR_PATH=\"$PROJECT_DIR/codex-watcher/target/release/codex-watcher-universal\"\n      ;;\n    *)\n      echo \"Unsupported CODEX_ISLAND_SIDECAR_ARCH: $CODEX_ISLAND_SIDECAR_ARCH\" >&2\n      exit 1\n      ;;\n  esac\nelse\n  cargo build\n  SIDECAR_PATH=\"$PROJECT_DIR/codex-watcher/target/debug/codex-watcher\"\nfi\nmkdir -p \"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH\"\ncp \"$SIDECAR_PATH\" \"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/codex-watcher\"\nchmod +x \"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/codex-watcher\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -424,7 +424,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 0.1.4;
+				MARKETING_VERSION = 1.0.5;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -488,7 +488,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 0.1.4;
+				MARKETING_VERSION = 1.0.5;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

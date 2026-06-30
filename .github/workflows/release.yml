@@ -22,6 +22,8 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
 
       - name: Install XcodeGen
         run: brew install xcodegen
@@ -61,8 +63,9 @@ jobs:
             -k "$KEYCHAIN_PASSWORD" \
             "$KEYCHAIN_PATH"
 
-      - name: Build Release app
+      - name: Build Release app (universal)
         run: |
+          rm -rf build
           xcodebuild \
             -project CodexIsland.xcodeproj \
             -scheme CodexIsland \
@@ -70,10 +73,12 @@ jobs:
             -destination 'generic/platform=macOS' \
             CODE_SIGN_IDENTITY=- \
             CODE_SIGNING_ALLOWED=YES \
+            ARCHS='arm64 x86_64' \
+            ONLY_ACTIVE_ARCH=NO \
             SYMROOT="$PWD/build" \
             build
 
-      - name: Package macOS artifacts
+      - name: Package macOS artifacts (default and universal)
         env:
           MACOS_APP_SIGN_IDENTITY: ${{ secrets.MACOS_APP_SIGN_IDENTITY }}
           MACOS_INSTALLER_SIGN_IDENTITY: ${{ secrets.MACOS_INSTALLER_SIGN_IDENTITY }}
@@ -83,6 +88,32 @@ jobs:
         run: |
           chmod +x scripts/package_macos_release.sh
           VERSION="${GITHUB_REF_NAME:-manual}" scripts/package_macos_release.sh build/Release/CodexIsland.app
+          VERSION="${GITHUB_REF_NAME:-manual}" ARTIFACT_SUFFIX="-universal" CLEAN_DIST=0 scripts/package_macos_release.sh build/Release/CodexIsland.app
+
+      - name: Build Release app (x86_64)
+        run: |
+          rm -rf build-x86_64
+          CODEX_ISLAND_SIDECAR_ARCH=x86_64 xcodebuild \
+            -project CodexIsland.xcodeproj \
+            -scheme CodexIsland \
+            -configuration Release \
+            -destination 'generic/platform=macOS' \
+            CODE_SIGN_IDENTITY=- \
+            CODE_SIGNING_ALLOWED=YES \
+            ARCHS='x86_64' \
+            ONLY_ACTIVE_ARCH=NO \
+            SYMROOT="$PWD/build-x86_64" \
+            build
+
+      - name: Package macOS artifacts (x86_64)
+        env:
+          MACOS_APP_SIGN_IDENTITY: ${{ secrets.MACOS_APP_SIGN_IDENTITY }}
+          MACOS_INSTALLER_SIGN_IDENTITY: ${{ secrets.MACOS_INSTALLER_SIGN_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: |
+          VERSION="${GITHUB_REF_NAME:-manual}" ARTIFACT_SUFFIX="-x86_64" CLEAN_DIST=0 scripts/package_macos_release.sh build-x86_64/Release/CodexIsland.app
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -95,4 +126,5 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*
+          overwrite_files: true
           generate_release_notes: true
