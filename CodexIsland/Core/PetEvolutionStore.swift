@@ -2,75 +2,49 @@ import Combine
 import Foundation
 
 enum PetForm: String, CaseIterable, Codable {
-    case core
-    case antenna
-    case ripple
-    case shell
-    case spark
-    case glider
-    case shield
-    case crystal
-    case star
-    case spirit
-
-    var assetName: String {
-        switch self {
-        case .core:
-            return "codex_core"
-        case .antenna:
-            return "codex_core_antenna"
-        case .ripple:
-            return "codex_core_ripple"
-        case .shell:
-            return "codex_core_shell"
-        case .spark:
-            return "codex_core_spark"
-        case .glider:
-            return "codex_core_glider"
-        case .shield:
-            return "codex_core_shield"
-        case .crystal:
-            return "codex_core_crystal"
-        case .star:
-            return "codex_core_star"
-        case .spirit:
-            return "codex_core_spirit"
-        }
-    }
+    case original
+    case shoesPink
+    case legsPink
+    case capePink
+    case skirtPink
+    case sleevesPink
+    case topPink
+    case ornamentRose
+    case hatPink
+    case hairPink
+    case fullPink
 
     var unlockLevel: Int {
         switch self {
-        case .core:
+        case .original:
             return 0
-        case .antenna:
+        case .shoesPink:
             return 10
-        case .ripple:
+        case .legsPink:
             return 20
-        case .shell:
+        case .capePink:
             return 30
-        case .spark:
+        case .skirtPink:
             return 40
-        case .glider:
+        case .sleevesPink:
             return 50
-        case .shield:
+        case .topPink:
             return 60
-        case .crystal:
+        case .ornamentRose:
             return 70
-        case .star:
+        case .hatPink:
             return 80
-        case .spirit:
+        case .hairPink:
             return 90
+        case .fullPink:
+            return 100
         }
-    }
-
-    var rank: Int {
-        Self.allCases.firstIndex(of: self) ?? 0
     }
 
     static func form(for level: Int) -> PetForm {
         let clampedLevel = PetLevelCurve.clamp(level)
         return Self.allCases
-            .last { clampedLevel >= $0.unlockLevel } ?? .core
+            .last { clampedLevel >= $0.unlockLevel } ?? .original
     }
 }
 
@@ -132,7 +106,7 @@ final class PetEvolutionStore: ObservableObject {
     @Published private(set) var globalUsage: GlobalTokenUsageSnapshot?
     @Published private(set) var level = 0
     @Published private(set) var earnedTokens: Int64 = 0
-    @Published private(set) var currentForm: PetForm = .core
+    @Published private(set) var currentForm: PetForm = .original
     @Published private(set) var levelProgress: Double = 0
     @Published private(set) var tokensToNextLevel: Int64? = PetLevelCurve.tokensRequired(for: 1)
     @Published private(set) var feedTrigger: UUID?

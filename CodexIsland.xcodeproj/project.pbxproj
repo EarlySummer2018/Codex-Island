@@ -12,11 +12,9 @@
 		0F92B5693559E70C8296CF7B /* AwaitingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A34D7CA0C1EDD0128470BFB2 /* AwaitingView.swift */; };
 		10337B3BDB97A0B2F30B57CC /* TokenInfoRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = CED6D9ABE61D9BC7325F14A2 /* TokenInfoRow.swift */; };
 		1718100CBC49BDD67BC3E22A /* TokenPill.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B00A7CF54718DD6687EA90C /* TokenPill.swift */; };
-		194E4A6FCA8B194BA0D3FC5D /* PulseRingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92A6C8FD901CFD058A98456A /* PulseRingView.swift */; };
 		199186B1C23BC8BC901981ED /* EventBus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82F6E74CEA999AB8E61CEBAD /* EventBus.swift */; };
 		1A11DCA4AC06CE7F0ED7A300 /* AppSettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAAF6D4D5443F680AD5D0966 /* AppSettingsStore.swift */; };
 		1B7E9FC1635084C3DAFE946C /* NotchIslandView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40F09BDCAF87E77C31CC3C6D /* NotchIslandView.swift */; };
-		2B97B381F7AD96657C76F52B /* PlaceholderPetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11B7923A5E7C65BBB8FF1515 /* PlaceholderPetView.swift */; };
 		2E18AB5DA799D8C9A24A3F5A /* TokenCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F51C7F32B043843E3356318 /* TokenCard.swift */; };
 		46505A792C3F57C1A07793F1 /* TokenFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 277912B119B52F92385750DB /* TokenFormatter.swift */; };
 		48F20786D110C5DD6B8423AC /* StreamingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3203B54E398B6FA82C49F39 /* StreamingView.swift */; };
@@ -66,7 +64,6 @@
 		02E7E9CC09A00B1E7A87F9E3 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		0BAFC2C1DA9D8AB76EBFFE85 /* ActivateCodexButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivateCodexButton.swift; sourceTree = "<group>"; };
 		112456629956FDAA474AF77A /* AwaitReasonLabel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AwaitReasonLabel.swift; sourceTree = "<group>"; };
-		11B7923A5E7C65BBB8FF1515 /* PlaceholderPetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaceholderPetView.swift; sourceTree = "<group>"; };
 		179C1105C15EC77BD1629E59 /* DesktopPetBehaviorEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesktopPetBehaviorEngine.swift; sourceTree = "<group>"; };
 		24D58AA45F6BFDA841CBFFBF /* AnimatedTokenCounter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnimatedTokenCounter.swift; sourceTree = "<group>"; };
 		252B859314C3AA30F8E66B53 /* PixelLevelBadgeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PixelLevelBadgeView.swift; sourceTree = "<group>"; };
@@ -87,7 +84,6 @@
 		800B32207E6C3BDCD828A429 /* IdleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IdleView.swift; sourceTree = "<group>"; };
 		82F6E74CEA999AB8E61CEBAD /* EventBus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventBus.swift; sourceTree = "<group>"; };
 		8F51C7F32B043843E3356318 /* TokenCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TokenCard.swift; sourceTree = "<group>"; };
-		92A6C8FD901CFD058A98456A /* PulseRingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PulseRingView.swift; sourceTree = "<group>"; };
 		92F179BB1490471ED0D5AFF3 /* PetAnimation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PetAnimation.swift; sourceTree = "<group>"; };
 		A1FF29257236D3FBF4EAE37E /* DesktopPetController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesktopPetController.swift; sourceTree = "<group>"; };
 		A34D7CA0C1EDD0128470BFB2 /* AwaitingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AwaitingView.swift; sourceTree = "<group>"; };
@@ -199,8 +195,6 @@
 				112456629956FDAA474AF77A /* AwaitReasonLabel.swift */,
 				92F179BB1490471ED0D5AFF3 /* PetAnimation.swift */,
 				FBE8CCB3350C6D184EE29C32 /* PixelPetView.swift */,
-				11B7923A5E7C65BBB8FF1515 /* PlaceholderPetView.swift */,
-				92A6C8FD901CFD058A98456A /* PulseRingView.swift */,
 				EE0208DA1008D3B62CB34C79 /* RoamingPetView.swift */,
 				8F51C7F32B043843E3356318 /* TokenCard.swift */,
 				F8DF0B723E3D84037BC45675 /* TokenColors.swift */,
@@ -387,8 +381,6 @@
 				BAD51EC51595BA6100FB51D4 /* PetEvolutionStore.swift in Sources */,
 				D2C8917E4075E820A333B32F /* PixelLevelBadgeView.swift in Sources */,
 				953EFAA8882D06AFE74292D7 /* PixelPetView.swift in Sources */,
-				2B97B381F7AD96657C76F52B /* PlaceholderPetView.swift in Sources */,
-				194E4A6FCA8B194BA0D3FC5D /* PulseRingView.swift in Sources */,
 				FCF1470F56DD61F572A58AEA /* RoamingPetView.swift in Sources */,
 				57C582D9CFF12DCAD811EF64 /* SessionState.swift in Sources */,
 				FBB3D121D2B2D940C014665A /* SidecarBridge.swift in Sources */,

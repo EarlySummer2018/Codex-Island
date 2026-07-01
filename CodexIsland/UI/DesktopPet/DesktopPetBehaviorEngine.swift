@@ -21,20 +21,18 @@ enum DesktopPetAction: String, Equatable {
     case dodging
     case dragging
     case landing
-    case levelUpCelebrating
     case returning
 }
 
 enum DesktopPetMetrics {
-    static let windowSize = CGSize(width: 112, height: 124)
-    static let petSize: CGFloat = 72
+    static let windowSize = CGSize(width: 160, height: 180)
+    static let petSize: CGFloat = 104
     static let capsulePetSize: CGFloat = 28
     static let desktopPresentationScale: CGFloat = 1
     static let capsulePresentationScale: CGFloat = capsulePetSize / petSize
     static let maxRoamDistance: CGFloat = 190
     static let singleClickDodgeDistance: CGFloat = 190
     static let idleSpeed: CGFloat = 70
-    static let thinkingSpeed: CGFloat = 45
     static let workingSpeed: CGFloat = 60
     static let streamingSpeed: CGFloat = 115
     static let launchSpeed: CGFloat = 120
@@ -46,7 +44,7 @@ enum DesktopPetMetrics {
 
 enum DesktopPetBehaviorEngine {
     static func shouldPauseRoaming(for state: CodexSessionState) -> Bool {
-        state == .awaitingInput || state == .error
+        state == .thinking || state == .awaitingInput || state == .error
     }
 
     static func roamSpeed(for state: CodexSessionState) -> CGFloat {
@@ -54,7 +52,7 @@ enum DesktopPetBehaviorEngine {
         case .idle:
             return DesktopPetMetrics.idleSpeed
         case .thinking:
-            return DesktopPetMetrics.thinkingSpeed
+            return 0
         case .working:
             return DesktopPetMetrics.workingSpeed
         case .streaming:
@@ -72,11 +70,6 @@ enum DesktopPetBehaviorEngine {
             return .talkWalk
         }
     }
-
-    static func statusEffect(for state: CodexSessionState) -> PetStatusEffect {
-        PetStatusEffect.from(state: state)
-    }
-
     static func clampedOrigin(
         _ origin: CGPoint,
         windowSize: CGSize,

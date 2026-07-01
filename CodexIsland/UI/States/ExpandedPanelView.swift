@@ -50,9 +50,7 @@ struct ExpandedPanelView: View {
                     size: 30,
                     form: evolutionStore.currentForm,
                     level: evolutionStore.level,
-                    feedTrigger: evolutionStore.feedTrigger,
-                    levelUpTrigger: evolutionStore.levelUpTrigger,
-                    statusEffect: PetStatusEffect.from(state: eventBus.sessionState)
+                    feedTrigger: evolutionStore.feedTrigger
                 )
             }
             .frame(width: 38, height: 38)
@@ -131,9 +129,7 @@ struct ExpandedPanelView: View {
                 size: 82,
                 form: evolutionStore.currentForm,
                 level: evolutionStore.level,
-                feedTrigger: evolutionStore.feedTrigger,
-                levelUpTrigger: evolutionStore.levelUpTrigger,
-                statusEffect: PetStatusEffect.from(state: eventBus.sessionState)
+                feedTrigger: evolutionStore.feedTrigger
             )
 
             HStack(spacing: 8) {

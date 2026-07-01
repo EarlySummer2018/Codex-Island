@@ -5,8 +5,6 @@ struct RoamingPetView: View {
     let form: PetForm
     let level: Int
     var feedTrigger: UUID?
-    var levelUpTrigger: UUID?
-    var statusEffect: PetStatusEffect = .none
 
     var body: some View {
         PixelPetView(
@@ -14,9 +12,7 @@ struct RoamingPetView: View {
             size: 22,
             form: form,
             level: level,
-            feedTrigger: feedTrigger,
-            levelUpTrigger: levelUpTrigger,
-            statusEffect: statusEffect
+            feedTrigger: feedTrigger
         )
         .frame(width: 28, height: 28)
         .allowsHitTesting(false)

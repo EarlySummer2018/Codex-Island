@@ -14,8 +14,7 @@ struct IdleView: View {
                 size: 24,
                 form: evolutionStore.currentForm,
                 level: evolutionStore.level,
-                feedTrigger: feedTrigger,
-                levelUpTrigger: evolutionStore.levelUpTrigger
+                feedTrigger: feedTrigger
             )
             Spacer(minLength: 0)
         }

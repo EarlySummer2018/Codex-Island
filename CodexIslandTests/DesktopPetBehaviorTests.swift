@@ -112,8 +112,18 @@ final class DesktopPetBehaviorTests: XCTestCase {
             DesktopPetMetrics.capsulePetSize / DesktopPetMetrics.petSize,
             accuracy: 0.001
         )
-        XCTAssertGreaterThan(DesktopPetMetrics.capsulePresentationScale, 0.35)
-        XCTAssertLessThan(DesktopPetMetrics.capsulePresentationScale, 0.40)
+        XCTAssertGreaterThan(DesktopPetMetrics.capsulePresentationScale, 0.26)
+        XCTAssertLessThan(DesktopPetMetrics.capsulePresentationScale, 0.28)
+    }
+
+    func testDesktopPetUsesLargerBodyWithoutScalingLevelBadge() {
+        XCTAssertEqual(DesktopPetMetrics.petSize, 104)
+        XCTAssertEqual(DesktopPetMetrics.windowSize.width, 160)
+        XCTAssertEqual(DesktopPetMetrics.windowSize.height, 180)
+
+        let largestBadge = PixelLevelBadgeRenderer.canvasSize(for: 100)
+        XCTAssertLessThanOrEqual(largestBadge.width, 52)
+        XCTAssertLessThanOrEqual(largestBadge.height, 16)
     }
 
     func testReturnOriginCentersWindowOnCapsuleAnchor() {
@@ -198,27 +208,44 @@ final class DesktopPetBehaviorTests: XCTestCase {
 
     func testPetAnimationsMapToFurinaAtlasRows() {
         XCTAssertEqual(PetAnimation.idleBreathe.furinaAtlasState, .idle)
-        XCTAssertEqual(PetAnimation.thinkSweat.furinaAtlasState, .review)
+        XCTAssertEqual(PetAnimation.bubbleThink.furinaAtlasState, .review)
         XCTAssertEqual(PetAnimation.talkWalk.furinaAtlasState, .running)
         XCTAssertEqual(PetAnimation.outputBurst.furinaAtlasState, .running)
         XCTAssertEqual(PetAnimation.awaitJump.furinaAtlasState, .waiting)
         XCTAssertEqual(PetAnimation.errorFall.furinaAtlasState, .failed)
-        XCTAssertEqual(PetAnimation.evolveGlow.furinaAtlasState, .waving)
         XCTAssertEqual(PetAnimation.dragHover.furinaAtlasState, .jumping)
     }
 
+    func testPetAnimationsDoNotUseLevelSpecificBodyShapes() {
+        XCTAssertEqual(PetAnimation.from(state: .idle, level: 0), .idleBreathe)
+        XCTAssertEqual(PetAnimation.from(state: .idle, level: 100), .idleBreathe)
+        XCTAssertEqual(PetAnimation.from(state: .thinking, level: 0), .bubbleThink)
+        XCTAssertEqual(PetAnimation.from(state: .thinking, level: 100), .bubbleThink)
+        XCTAssertEqual(PetAnimation.feedAnimation(for: 0), .eatToken)
+        XCTAssertEqual(PetAnimation.feedAnimation(for: 100), .eatToken)
+        XCTAssertEqual(PetAnimation.idleBreakAnimation(for: 0), .idleStretch)
+        XCTAssertEqual(PetAnimation.idleBreakAnimation(for: 100), .idleStretch)
+    }
+
     func testDirectionalMovementUsesFurinaLeftAndRightRows() {
+        XCTAssertEqual(PetAnimation.talkWalk.furinaAtlasState(facingLeft: nil), .runningRight)
         XCTAssertEqual(PetAnimation.talkWalk.furinaAtlasState(facingLeft: false), .runningRight)
         XCTAssertEqual(PetAnimation.talkWalk.furinaAtlasState(facingLeft: true), .runningLeft)
+        XCTAssertEqual(PetAnimation.outputBurst.furinaAtlasState(facingLeft: nil), .runningRight)
         XCTAssertEqual(PetAnimation.outputBurst.furinaAtlasState(facingLeft: false), .runningRight)
         XCTAssertEqual(PetAnimation.idleBreathe.furinaAtlasState(facingLeft: true), .idle)
     }
 
     func testFurinaFrameIndexWrapsToAtlasColumns() {
-        XCTAssertEqual(FurinaPetAtlasSpec.normalizedFrameIndex(0), 0)
-        XCTAssertEqual(FurinaPetAtlasSpec.normalizedFrameIndex(7), 7)
-        XCTAssertEqual(FurinaPetAtlasSpec.normalizedFrameIndex(8), 0)
-        XCTAssertEqual(FurinaPetAtlasSpec.normalizedFrameIndex(15), 7)
+        XCTAssertEqual(FurinaPetAtlasSpec.visibleColumnCount(for: .idle), 6)
+        XCTAssertEqual(FurinaPetAtlasSpec.visibleColumnCount(for: .waving), 4)
+        XCTAssertEqual(FurinaPetAtlasSpec.visibleColumnCount(for: .jumping), 5)
+        XCTAssertEqual(FurinaPetAtlasSpec.visibleColumnCount(for: .runningRight), 8)
+
+        XCTAssertEqual(FurinaPetAtlasSpec.normalizedFrameIndex(5, for: .idle), 5)
+        XCTAssertEqual(FurinaPetAtlasSpec.normalizedFrameIndex(6, for: .idle), 0)
+        XCTAssertEqual(FurinaPetAtlasSpec.normalizedFrameIndex(7, for: .waving), 3)
+        XCTAssertEqual(FurinaPetAtlasSpec.normalizedFrameIndex(8, for: .runningRight), 0)
     }
 
     func testRoamingSpeedsFollowStatePriority() {
@@ -228,28 +255,61 @@ final class DesktopPetBehaviorTests: XCTestCase {
         )
         XCTAssertGreaterThan(
             DesktopPetBehaviorEngine.roamSpeed(for: .idle),
-            DesktopPetBehaviorEngine.roamSpeed(for: .thinking)
+            DesktopPetBehaviorEngine.roamSpeed(for: .working)
         )
         XCTAssertGreaterThan(
             DesktopPetBehaviorEngine.roamSpeed(for: .working),
             DesktopPetBehaviorEngine.roamSpeed(for: .thinking)
         )
+        XCTAssertEqual(DesktopPetBehaviorEngine.roamSpeed(for: .thinking), 0)
     }
 
-    func testAwaitingAndErrorPauseFreeRoaming() {
+    func testThinkingAwaitingAndErrorPauseFreeRoaming() {
         XCTAssertFalse(DesktopPetBehaviorEngine.shouldPauseRoaming(for: .idle))
+        XCTAssertFalse(DesktopPetBehaviorEngine.shouldPauseRoaming(for: .working))
         XCTAssertFalse(DesktopPetBehaviorEngine.shouldPauseRoaming(for: .streaming))
+        XCTAssertTrue(DesktopPetBehaviorEngine.shouldPauseRoaming(for: .thinking))
         XCTAssertTrue(DesktopPetBehaviorEngine.shouldPauseRoaming(for: .awaitingInput))
         XCTAssertTrue(DesktopPetBehaviorEngine.shouldPauseRoaming(for: .error))
     }
 
-    func testStatusEffectFollowsSessionState() {
-        XCTAssertEqual(DesktopPetBehaviorEngine.statusEffect(for: .idle), .none)
-        XCTAssertEqual(DesktopPetBehaviorEngine.statusEffect(for: .thinking), .thinking)
-        XCTAssertEqual(DesktopPetBehaviorEngine.statusEffect(for: .working), .working)
-        XCTAssertEqual(DesktopPetBehaviorEngine.statusEffect(for: .streaming), .streaming)
-        XCTAssertEqual(DesktopPetBehaviorEngine.statusEffect(for: .awaitingInput), .awaitingInput)
-        XCTAssertEqual(DesktopPetBehaviorEngine.statusEffect(for: .error), .error)
+    func testPetAnimationFrameRatesUseCalmerCadence() {
+        XCTAssertEqual(PetAnimation.talkWalk.fps, 6)
+        XCTAssertEqual(PetAnimation.outputBurst.fps, 6)
+        XCTAssertLessThanOrEqual(PetAnimation.idleBreathe.fps, 5)
+        XCTAssertLessThanOrEqual(PetAnimation.awaitJump.fps, 7)
+    }
+
+    func testFurinaFrameCacheKeyIncludesForm() {
+        XCTAssertNotEqual(
+            FurinaPetFrameKey(state: .idle, column: 0, form: .original),
+            FurinaPetFrameKey(state: .idle, column: 0, form: .fullPink)
+        )
+    }
+
+    func testFurinaRecolorChangesOpaquePixelsWithoutChangingTransparentMask() {
+        guard let original = FurinaPetAtlas.shared.image(for: .idle, frame: 0, form: .original),
+              let fullPink = FurinaPetAtlas.shared.image(for: .idle, frame: 0, form: .fullPink),
+              let originalData = rgbaData(from: original),
+              let fullPinkData = rgbaData(from: fullPink) else {
+            XCTFail("Expected Furina frames to render")
+            return
+        }
+
+        XCTAssertGreaterThan(differentOpaquePixelCount(originalData, fullPinkData), 100)
+        XCTAssertEqual(transparentPixelCount(originalData), transparentPixelCount(fullPinkData))
+    }
+
+    func testFurinaHairStageDiffersFromHatStage() {
+        guard let hat = FurinaPetAtlas.shared.image(for: .idle, frame: 0, form: .hatPink),
+              let hair = FurinaPetAtlas.shared.image(for: .idle, frame: 0, form: .hairPink),
+              let hatData = rgbaData(from: hat),
+              let hairData = rgbaData(from: hair) else {
+            XCTFail("Expected Furina frames to render")
+            return
+        }
+
+        XCTAssertGreaterThan(differentOpaquePixelCount(hatData, hairData), 20)
     }
 
     func testIpcDecoderRecognizesDailyTokenUsage() {
@@ -278,5 +338,66 @@ final class DesktopPetBehaviorTests: XCTestCase {
         let dx = lhs.x - rhs.x
         let dy = lhs.y - rhs.y
         return sqrt(dx * dx + dy * dy)
+    }
+
+    private func rgbaData(from image: NSImage) -> [UInt8]? {
+        var proposedRect = CGRect(origin: .zero, size: image.size)
+        guard let cgImage = image.cgImage(forProposedRect: &proposedRect, context: nil, hints: nil) else {
+            return nil
+        }
+
+        let width = cgImage.width
+        let height = cgImage.height
+        let bytesPerPixel = 4
+        let bytesPerRow = width * bytesPerPixel
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue
+        var data = [UInt8](repeating: 0, count: bytesPerRow * height)
+
+        let didDraw = data.withUnsafeMutableBytes { buffer -> Bool in
+            guard let context = CGContext(
+                data: buffer.baseAddress,
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bytesPerRow: bytesPerRow,
+                space: colorSpace,
+                bitmapInfo: bitmapInfo
+            ) else {
+                return false
+            }
+
+            context.interpolationQuality = .none
+            context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+
+        return didDraw ? data : nil
+    }
+
+    private func transparentPixelCount(_ data: [UInt8]) -> Int {
+        stride(from: 3, to: data.count, by: 4)
+            .filter { data[$0] == 0 }
+            .count
+    }
+
+    private func differentOpaquePixelCount(_ lhs: [UInt8], _ rhs: [UInt8]) -> Int {
+        let count = min(lhs.count, rhs.count)
+        var changed = 0
+        var index = 0
+
+        while index + 3 < count {
+            if lhs[index + 3] > 0 || rhs[index + 3] > 0 {
+                let delta = abs(Int(lhs[index]) - Int(rhs[index]))
+                    + abs(Int(lhs[index + 1]) - Int(rhs[index + 1]))
+                    + abs(Int(lhs[index + 2]) - Int(rhs[index + 2]))
+                if delta > 18 {
+                    changed += 1
+                }
+            }
+            index += 4
+        }
+
+        return changed
     }
 }

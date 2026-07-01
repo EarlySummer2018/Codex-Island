@@ -6,8 +6,6 @@ struct AwaitingView: View {
 
     var feedTrigger: UUID?
 
-    @State private var borderOpacity = 0.18
-
     var body: some View {
         HStack(spacing: 8) {
             PixelPetView(
@@ -15,9 +13,7 @@ struct AwaitingView: View {
                 size: 22,
                 form: evolutionStore.currentForm,
                 level: evolutionStore.level,
-                feedTrigger: feedTrigger,
-                levelUpTrigger: evolutionStore.levelUpTrigger,
-                statusEffect: .awaitingInput
+                feedTrigger: feedTrigger
             )
 
             Divider()
@@ -42,16 +38,11 @@ struct AwaitingView: View {
         .overlay(
             RoundedRectangle(cornerRadius: IslandShape.capsuleCornerRadius, style: .continuous)
                 .stroke(
-                    Color(red: 0.94, green: 0.27, blue: 0.27).opacity(borderOpacity),
+                    Color(red: 0.94, green: 0.27, blue: 0.27).opacity(0.56),
                     lineWidth: 1.5
                 )
         )
-        .shadow(
-            color: Color(red: 0.94, green: 0.27, blue: 0.27).opacity(borderOpacity * 0.45),
-            radius: 8
-        )
         .onAppear {
-            startBorderPulse()
             sendNotificationIfNeeded()
         }
         .onChange(of: eventBus.awaitReason) { _ in
@@ -59,14 +50,6 @@ struct AwaitingView: View {
         }
         .onChange(of: eventBus.activeSessionId) { _ in
             sendNotificationIfNeeded()
-        }
-    }
-
-    private func startBorderPulse() {
-        borderOpacity = 0.18
-
-        withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
-            borderOpacity = 0.82
         }
     }
 

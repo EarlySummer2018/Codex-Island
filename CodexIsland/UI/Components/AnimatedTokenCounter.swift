@@ -7,8 +7,6 @@ struct AnimatedTokenCounter: View {
     var alignment: Alignment = .leading
 
     @State private var displayValue = 0
-    @State private var isFlashing = false
-    @State private var flashTask: DispatchWorkItem?
 
     private var formattedValue: String {
         TokenFormatter.format(displayValue)
@@ -25,15 +23,9 @@ struct AnimatedTokenCounter: View {
                     return
                 }
 
-                flash()
-
                 withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
                     displayValue = newValue
                 }
-            }
-            .onDisappear {
-                flashTask?.cancel()
-                flashTask = nil
             }
     }
 
@@ -41,7 +33,7 @@ struct AnimatedTokenCounter: View {
     private var counterText: some View {
         let text = Text(formattedValue)
             .font(font)
-            .foregroundStyle(isFlashing ? Color.white : color)
+            .foregroundStyle(color)
             .monospacedDigit()
             .lineLimit(1)
             .minimumScaleFactor(0.78)
@@ -58,22 +50,5 @@ struct AnimatedTokenCounter: View {
                     )
                 )
         }
-    }
-
-    private func flash() {
-        flashTask?.cancel()
-
-        withAnimation(.easeOut(duration: 0.1)) {
-            isFlashing = true
-        }
-
-        let task = DispatchWorkItem {
-            withAnimation(.easeIn(duration: 0.2)) {
-                isFlashing = false
-            }
-        }
-
-        flashTask = task
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: task)
     }
 }

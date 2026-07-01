@@ -23,6 +23,31 @@ final class PetLevelCurveTests: XCTestCase {
         XCTAssertEqual(PetLevelCurve.progress(for: maxTokens), 1)
         XCTAssertNil(PetLevelCurve.tokensToNextLevel(for: maxTokens))
     }
+
+    func testFurinaFormsUnlockEveryTenLevelsThroughFullPink() {
+        XCTAssertEqual(PetForm.form(for: 0), .original)
+        XCTAssertEqual(PetForm.form(for: 9), .original)
+        XCTAssertEqual(PetForm.form(for: 10), .shoesPink)
+        XCTAssertEqual(PetForm.form(for: 20), .legsPink)
+        XCTAssertEqual(PetForm.form(for: 30), .capePink)
+        XCTAssertEqual(PetForm.form(for: 40), .skirtPink)
+        XCTAssertEqual(PetForm.form(for: 50), .sleevesPink)
+        XCTAssertEqual(PetForm.form(for: 60), .topPink)
+        XCTAssertEqual(PetForm.form(for: 70), .ornamentRose)
+        XCTAssertEqual(PetForm.form(for: 80), .hatPink)
+        XCTAssertEqual(PetForm.form(for: 90), .hairPink)
+        XCTAssertEqual(PetForm.form(for: 100), .fullPink)
+        XCTAssertEqual(PetForm.form(for: 120), .fullPink)
+    }
+
+    func testFurinaRecolorPartsAdvanceOnePartAtATime() {
+        XCTAssertEqual(PetForm.shoesPink.furinaRecolorParts, [.shoes])
+        XCTAssertEqual(PetForm.legsPink.furinaRecolorParts, [.shoes, .legs])
+        XCTAssertTrue(PetForm.hatPink.furinaRecolorParts.contains(.hat))
+        XCTAssertFalse(PetForm.hatPink.furinaRecolorParts.contains(.hairTips))
+        XCTAssertTrue(PetForm.hairPink.furinaRecolorParts.contains(.hairTips))
+        XCTAssertEqual(PetForm.fullPink.furinaRecolorParts, PetForm.hairPink.furinaRecolorParts)
+    }
 }
 
 @MainActor
@@ -34,7 +59,7 @@ final class PetEvolutionStoreTests: XCTestCase {
 
         XCTAssertEqual(store.level, 42)
         XCTAssertEqual(store.earnedTokens, 20_000_000_000)
-        XCTAssertEqual(store.currentForm, .spark)
+        XCTAssertEqual(store.currentForm, .skirtPink)
         XCTAssertNil(store.feedTrigger)
         XCTAssertNil(store.levelUpTrigger)
     }
@@ -47,7 +72,7 @@ final class PetEvolutionStoreTests: XCTestCase {
 
         XCTAssertEqual(store.earnedTokens, 1_300_000_000)
         XCTAssertEqual(store.level, 10)
-        XCTAssertEqual(store.currentForm, .antenna)
+        XCTAssertEqual(store.currentForm, .shoesPink)
         XCTAssertNotNil(store.levelUpTrigger)
     }
 

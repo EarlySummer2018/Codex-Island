@@ -9,7 +9,6 @@ final class DesktopPetController: ObservableObject {
     @Published private(set) var phase: DesktopPetPhase = .disabled
     @Published private(set) var action: DesktopPetAction = .idle
     @Published private(set) var animationName: PetAnimation = .idleBreathe
-    @Published private(set) var statusEffect: PetStatusEffect = .none
     @Published private(set) var isFacingLeft = false
     @Published private(set) var presentationScale = DesktopPetMetrics.desktopPresentationScale
 
@@ -18,7 +17,6 @@ final class DesktopPetController: ObservableObject {
 
     private let settings = AppSettingsStore.shared
     private let eventBus = EventBus.shared
-    private let evolutionStore = PetEvolutionStore.shared
     private var panelStorage: DesktopPetPanel?
     private var cancellables = Set<AnyCancellable>()
     private var scheduledWorkItem: DispatchWorkItem?
@@ -74,14 +72,6 @@ final class DesktopPetController: ObservableObject {
             }
             .store(in: &cancellables)
 
-        evolutionStore.$levelUpTrigger
-            .dropFirst()
-            .compactMap { $0 }
-            .sink { [weak self] _ in
-                self?.celebrateLevelUp()
-            }
-            .store(in: &cancellables)
-
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(screenParametersChanged),
@@ -100,7 +90,6 @@ final class DesktopPetController: ObservableObject {
         phase = .disabled
         action = .idle
         animationName = .idleBreathe
-        statusEffect = .none
         presentationScale = DesktopPetMetrics.desktopPresentationScale
         panelStorage?.orderOut(nil)
     }
@@ -118,7 +107,6 @@ final class DesktopPetController: ObservableObject {
         phase = .dodging
         action = .dodging
         animationName = .startledHop
-        statusEffect = .none
 
         let reactionID = movementID
         runAfter(0.18) { [weak self] in
@@ -142,7 +130,6 @@ final class DesktopPetController: ObservableObject {
         phase = .dragging
         action = .dragging
         animationName = .dragHover
-        statusEffect = .dragging
         dragOffsetInWindow = offsetInWindow
         lastDragScreenLocation = screenLocation
     }
@@ -212,7 +199,6 @@ final class DesktopPetController: ObservableObject {
         phase = .launching
         action = .strolling
         animationName = movingAnimation(for: state)
-        statusEffect = DesktopPetBehaviorEngine.statusEffect(for: state)
         presentationScale = DesktopPetMetrics.capsulePresentationScale
         panel.setFrame(NSRect(origin: startOrigin, size: windowSize), display: true)
         panel.orderFrontRegardless()
@@ -242,8 +228,7 @@ final class DesktopPetController: ObservableObject {
                 duration: launchDuration,
                 phase: .launching,
                 action: .strolling,
-                animation: self.movingAnimation(for: state),
-                statusEffect: DesktopPetBehaviorEngine.statusEffect(for: state)
+                animation: self.movingAnimation(for: state)
             ) { [weak self] in
                 self?.landAndResume()
             }
@@ -284,7 +269,6 @@ final class DesktopPetController: ObservableObject {
         phase = .roaming
         action = .pausing
         animationName = restingAnimation(for: state)
-        statusEffect = DesktopPetBehaviorEngine.statusEffect(for: state)
         presentationScale = DesktopPetMetrics.desktopPresentationScale
 
         if DesktopPetBehaviorEngine.shouldPauseRoaming(for: state) {
@@ -300,7 +284,6 @@ final class DesktopPetController: ObservableObject {
         phase = .waitingForCapsuleStill
         action = .lookingAround
         animationName = .idleBreathe
-        statusEffect = .none
         presentationScale = DesktopPetMetrics.desktopPresentationScale
 
         waitForStableCapsuleAnchor(
@@ -375,8 +358,7 @@ final class DesktopPetController: ObservableObject {
             duration: returnDuration,
             phase: .returning,
             action: .returning,
-            animation: .talkWalk,
-            statusEffect: .none
+            animation: .talkWalk
         ) { [weak self] in
             guard let self else {
                 return
@@ -406,8 +388,7 @@ final class DesktopPetController: ObservableObject {
             duration: duration(to: target, speed: speed, minimum: 0.55, maximum: 1.85),
             phase: .dodging,
             action: .dodging,
-            animation: .talkWalk,
-            statusEffect: .none
+            animation: .talkWalk
         ) { [weak self] in
             self?.landAndResume()
         }
@@ -436,8 +417,7 @@ final class DesktopPetController: ObservableObject {
             duration: duration(to: target, speed: roamSpeed, minimum: 1.0, maximum: 4.8),
             phase: .roaming,
             action: .strolling,
-            animation: movingAnimation(for: state),
-            statusEffect: DesktopPetBehaviorEngine.statusEffect(for: state)
+            animation: movingAnimation(for: state)
         ) { [weak self] in
             guard let self, self.phase == .roaming else {
                 return
@@ -452,7 +432,6 @@ final class DesktopPetController: ObservableObject {
         phase = .dropped
         action = .landing
         animationName = .landBounce
-        statusEffect = .none
 
         runAfter(0.72) { [weak self] in
             self?.resumeRoaming()
@@ -478,43 +457,22 @@ final class DesktopPetController: ObservableObject {
 
     private func reactToSessionState(_ state: CodexSessionState) {
         guard settings.isDesktopPetEnabled,
-              phase == .roaming,
-              action != .levelUpCelebrating else {
+              phase == .roaming else {
             return
         }
 
         cancelScheduledWork()
         if DesktopPetBehaviorEngine.shouldPauseRoaming(for: state) {
-            applyStationaryState(state)
+            applyStationaryState(state, shouldFreezeCurrentMovement: action == .strolling)
             return
         }
 
-        statusEffect = DesktopPetBehaviorEngine.statusEffect(for: state)
         if action == .strolling {
             animationName = movingAnimation(for: state)
         } else {
             action = .pausing
             animationName = restingAnimation(for: state)
             scheduleNextRoam(delay: nextRoamDelay)
-        }
-    }
-
-    private func celebrateLevelUp() {
-        guard settings.isDesktopPetEnabled,
-              settings.isCapsuleVisible,
-              phase == .roaming else {
-            return
-        }
-
-        cancelScheduledWork()
-        movementID += 1
-        phase = .roaming
-        action = .levelUpCelebrating
-        animationName = PetAnimation.levelUpAnimation(for: evolutionStore.level)
-        statusEffect = .levelUp
-
-        runAfter(1.45) { [weak self] in
-            self?.resumeRoaming()
         }
     }
 
@@ -529,7 +487,6 @@ final class DesktopPetController: ObservableObject {
         let selectedAction = microAction(for: state)
         action = selectedAction
         animationName = animation(for: selectedAction, state: state)
-        statusEffect = DesktopPetBehaviorEngine.statusEffect(for: state)
         scheduleNextRoam(delay: delayOverride ?? delay(for: selectedAction, state: state))
     }
 
@@ -540,11 +497,16 @@ final class DesktopPetController: ObservableObject {
             action = .pausing
         }
         animationName = restingAnimation(for: state)
-        statusEffect = DesktopPetBehaviorEngine.statusEffect(for: state)
     }
 
-    private func applyStationaryState(_ state: CodexSessionState) {
+    private func applyStationaryState(
+        _ state: CodexSessionState,
+        shouldFreezeCurrentMovement: Bool = false
+    ) {
         cancelScheduledWork()
+        if shouldFreezeCurrentMovement {
+            freezeCurrentPanelMovement()
+        }
         applyRestingState(state)
     }
 
@@ -576,8 +538,6 @@ final class DesktopPetController: ObservableObject {
             return restingAnimation(for: state)
         case .landing:
             return .landBounce
-        case .levelUpCelebrating:
-            return PetAnimation.levelUpAnimation(for: evolutionStore.level)
         case .strolling, .dodging, .returning:
             return movingAnimation(for: state)
         case .dragging:
@@ -598,8 +558,6 @@ final class DesktopPetController: ObservableObject {
             return 2.0
         case .pausing:
             return nextRoamDelay
-        case .levelUpCelebrating:
-            return 1.45
         case .idle, .strolling, .dodging, .dragging, .landing, .returning:
             return nextRoamDelay
         }
@@ -626,7 +584,6 @@ final class DesktopPetController: ObservableObject {
         phase nextPhase: DesktopPetPhase,
         action nextAction: DesktopPetAction,
         animation: PetAnimation,
-        statusEffect nextStatusEffect: PetStatusEffect = .none,
         completion: (() -> Void)? = nil
     ) {
         cancelScheduledWork()
@@ -645,7 +602,6 @@ final class DesktopPetController: ObservableObject {
         phase = nextPhase
         action = nextAction
         animationName = animation
-        statusEffect = nextStatusEffect
 
         NSAnimationContext.runAnimationGroup { context in
             context.duration = duration
@@ -685,6 +641,16 @@ final class DesktopPetController: ObservableObject {
     private func cancelScheduledWork() {
         scheduledWorkItem?.cancel()
         scheduledWorkItem = nil
+    }
+
+    private func freezeCurrentPanelMovement() {
+        movementID += 1
+        let frame = panel.frame
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0
+            context.allowsImplicitAnimation = false
+            panel.setFrame(frame, display: true)
+        }
     }
 
     private func updateFacing(from origin: CGPoint, to target: CGPoint) {
@@ -752,10 +718,10 @@ final class DesktopPetController: ObservableObject {
     }
 
     private func restingAnimation(for state: CodexSessionState) -> PetAnimation {
-        PetAnimation.from(state: state, level: evolutionStore.level)
+        PetAnimation.from(state: state)
     }
 
     private func movingAnimation(for state: CodexSessionState) -> PetAnimation {
-        DesktopPetBehaviorEngine.movingAnimation(for: state, level: evolutionStore.level)
+        DesktopPetBehaviorEngine.movingAnimation(for: state)
     }
 }

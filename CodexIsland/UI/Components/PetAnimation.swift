@@ -3,22 +3,13 @@ import Foundation
 enum PetAnimation: String, Equatable {
     case idleBreathe = "idle_breathe"
     case idleStretch = "idle_stretch"
-    case thinkSweat = "think_sweat"
     case talkWalk = "talk_walk"
     case awaitJump = "await_jump"
     case errorFall = "error_fall"
     case eatToken = "eat_token"
-    case evolveGlow = "evolve_glow"
     case happyBounce = "happy_bounce"
-    case nap
     case bubbleThink = "bubble_think"
     case outputBurst = "output_burst"
-    case hoverIdle = "hover_idle"
-    case shieldWait = "shield_wait"
-    case tokenOrbit = "token_orbit"
-    case celebrateDance = "celebrate_dance"
-    case spiritIdle = "spirit_idle"
-    case maxVictory = "max_victory"
     case startledHop = "startled_hop"
     case dragHover = "drag_hover"
     case landBounce = "land_bounce"
@@ -29,36 +20,20 @@ enum PetAnimation: String, Equatable {
             return 8
         case .idleStretch:
             return 12
-        case .thinkSweat:
-            return 8
         case .talkWalk:
             return 8
         case .awaitJump:
             return 10
         case .errorFall:
             return 10
-        case .eatToken, .evolveGlow:
+        case .eatToken:
             return 8
         case .happyBounce:
             return 10
-        case .nap:
-            return 12
         case .bubbleThink:
             return 8
         case .outputBurst:
             return 8
-        case .hoverIdle:
-            return 8
-        case .shieldWait:
-            return 10
-        case .tokenOrbit:
-            return 12
-        case .celebrateDance:
-            return 12
-        case .spiritIdle:
-            return 8
-        case .maxVictory:
-            return 16
         case .startledHop:
             return 8
         case .dragHover:
@@ -70,14 +45,19 @@ enum PetAnimation: String, Equatable {
 
     var fps: Int {
         switch self {
-        case .awaitJump, .happyBounce, .shieldWait, .tokenOrbit, .celebrateDance, .startledHop, .landBounce:
-            return 10
-        case .talkWalk, .outputBurst, .maxVictory, .dragHover:
-            return 12
-        case .nap:
+        case .talkWalk, .outputBurst:
             return 6
+        case .awaitJump,
+             .happyBounce,
+             .startledHop,
+             .landBounce:
+            return 7
+        case .dragHover:
+            return 6
+        case .idleBreathe:
+            return 5
         default:
-            return 8
+            return 6
         }
     }
 
@@ -86,24 +66,15 @@ enum PetAnimation: String, Equatable {
         case .idleStretch,
              .errorFall,
              .eatToken,
-             .evolveGlow,
              .happyBounce,
-             .nap,
-             .tokenOrbit,
-             .celebrateDance,
-             .maxVictory,
              .startledHop,
              .landBounce:
             return 1
         case .idleBreathe,
-             .thinkSweat,
              .talkWalk,
              .awaitJump,
              .bubbleThink,
              .outputBurst,
-             .hoverIdle,
-             .shieldWait,
-             .spiritIdle,
              .dragHover:
             return nil
         }
@@ -112,90 +83,34 @@ enum PetAnimation: String, Equatable {
     static func from(state: CodexSessionState, level: Int = 0) -> PetAnimation {
         switch state {
         case .idle:
-            if level >= 90 {
-                return .spiritIdle
-            }
-
-            if level >= 50 {
-                return .hoverIdle
-            }
-
             return .idleBreathe
         case .thinking:
-            return level >= 30 ? .bubbleThink : .thinkSweat
+            return .bubbleThink
         case .working:
-            return level >= 30 ? .bubbleThink : .thinkSweat
+            return .bubbleThink
         case .streaming:
-            return level >= 40 ? .outputBurst : .talkWalk
+            return .outputBurst
         case .awaitingInput:
-            return level >= 60 ? .shieldWait : .awaitJump
+            return .awaitJump
         case .error:
             return .errorFall
         }
     }
 
     static func feedAnimation(for level: Int) -> PetAnimation {
-        level >= 70 ? .tokenOrbit : .eatToken
-    }
-
-    static func levelUpAnimation(for level: Int) -> PetAnimation {
-        if level >= PetLevelCurve.maxLevel {
-            return .maxVictory
-        }
-
-        if level >= 80 {
-            return .celebrateDance
-        }
-
-        return .evolveGlow
+        .eatToken
     }
 
     static func idleBreakAnimation(for level: Int) -> PetAnimation {
-        if level >= 20 {
-            return .nap
-        }
-
-        if level >= 10 {
-            return .happyBounce
-        }
-
         return .idleStretch
     }
 
     var isIdleLoop: Bool {
         switch self {
-        case .idleBreathe, .hoverIdle, .spiritIdle:
+        case .idleBreathe:
             return true
         default:
             return false
-        }
-    }
-}
-
-enum PetStatusEffect: String, Equatable {
-    case none
-    case thinking
-    case working
-    case streaming
-    case awaitingInput
-    case error
-    case dragging
-    case levelUp
-
-    static func from(state: CodexSessionState) -> PetStatusEffect {
-        switch state {
-        case .idle:
-            return .none
-        case .thinking:
-            return .thinking
-        case .working:
-            return .working
-        case .streaming:
-            return .streaming
-        case .awaitingInput:
-            return .awaitingInput
-        case .error:
-            return .error
         }
     }
 }
@@ -209,9 +124,23 @@ enum FurinaPetAtlasSpec {
     static let atlasWidth = columns * cellWidth
     static let atlasHeight = rows * cellHeight
 
-    static func normalizedFrameIndex(_ frame: Int) -> Int {
-        let remainder = frame % columns
-        return remainder >= 0 ? remainder : remainder + columns
+    static func normalizedFrameIndex(_ frame: Int, for state: FurinaPetAtlasState) -> Int {
+        let visibleColumns = max(visibleColumnCount(for: state), 1)
+        let remainder = frame % visibleColumns
+        return remainder >= 0 ? remainder : remainder + visibleColumns
+    }
+
+    static func visibleColumnCount(for state: FurinaPetAtlasState) -> Int {
+        switch state {
+        case .idle, .waiting, .running, .review:
+            return 6
+        case .runningRight, .runningLeft, .failed:
+            return 8
+        case .waving:
+            return 4
+        case .jumping:
+            return 5
+        }
     }
 }
 
@@ -234,17 +163,17 @@ enum FurinaPetAtlasState: Int, CaseIterable, Equatable {
 extension PetAnimation {
     var furinaAtlasState: FurinaPetAtlasState {
         switch self {
-        case .idleBreathe, .hoverIdle, .spiritIdle, .nap:
+        case .idleBreathe:
             return .idle
         case .talkWalk, .outputBurst:
             return .running
-        case .idleStretch, .happyBounce, .evolveGlow, .celebrateDance, .maxVictory:
+        case .idleStretch, .happyBounce:
             return .waving
-        case .awaitJump, .shieldWait:
+        case .awaitJump:
             return .waiting
         case .errorFall:
             return .failed
-        case .eatToken, .thinkSweat, .bubbleThink, .tokenOrbit:
+        case .eatToken, .bubbleThink:
             return .review
         case .startledHop, .dragHover, .landBounce:
             return .jumping
@@ -261,40 +190,14 @@ extension PetAnimation {
     }
 
     func furinaAtlasState(facingLeft: Bool?) -> FurinaPetAtlasState {
-        guard usesDirectionalFurinaMovementRows,
-              let facingLeft else {
+        guard usesDirectionalFurinaMovementRows else {
             return furinaAtlasState
         }
 
-        return facingLeft ? .runningLeft : .runningRight
+        return (facingLeft ?? false) ? .runningLeft : .runningRight
     }
 
-    var inferredStatusEffect: PetStatusEffect {
-        switch self {
-        case .thinkSweat, .bubbleThink:
-            return .thinking
-        case .outputBurst:
-            return .streaming
-        case .awaitJump, .shieldWait:
-            return .awaitingInput
-        case .errorFall:
-            return .error
-        case .dragHover:
-            return .dragging
-        case .evolveGlow, .celebrateDance, .maxVictory:
-            return .levelUp
-        case .idleBreathe,
-             .idleStretch,
-             .talkWalk,
-             .eatToken,
-             .happyBounce,
-             .nap,
-             .hoverIdle,
-             .tokenOrbit,
-             .spiritIdle,
-             .startledHop,
-             .landBounce:
-            return .none
-        }
+    func furinaFrameCount(facingLeft: Bool?) -> Int {
+        FurinaPetAtlasSpec.visibleColumnCount(for: furinaAtlasState(facingLeft: facingLeft))
     }
 }
