@@ -6,6 +6,8 @@ struct PlaceholderPetView: View {
     let size: CGFloat
     var form: PetForm = .core
     var level: Int = 0
+    var statusEffect: PetStatusEffect = .none
+    var showsGroundShadow = true
 
     var body: some View {
         Canvas { context, canvasSize in
@@ -22,7 +24,9 @@ struct PlaceholderPetView: View {
         )
 
         drawAura(in: context, origin: origin, pixel: pixel)
-        drawShadow(in: context, origin: origin, pixel: pixel)
+        if showsGroundShadow {
+            drawShadow(in: context, origin: origin, pixel: pixel)
+        }
 
         if animation == .errorFall {
             drawFallenPet(in: context, origin: origin, pixel: pixel)
@@ -64,9 +68,12 @@ struct PlaceholderPetView: View {
     }
 
     private func drawShadow(in context: GraphicsContext, origin: CGPoint, pixel: CGFloat) {
-        let shadowWidth = animation == .awaitJump ? 8 : 12
-        let shadowX = animation == .awaitJump ? 8 : 6
-        let opacity = animation == .awaitJump ? 0.22 : 0.36
+        let airborne = animation == .awaitJump
+            || animation == .startledHop
+            || animation == .dragHover
+        let shadowWidth = airborne ? 8 : 12
+        let shadowX = airborne ? 8 : 6
+        let opacity = airborne ? 0.22 : 0.36
 
         drawRect(
             in: context,
@@ -145,7 +152,7 @@ struct PlaceholderPetView: View {
             return
         }
 
-        let flap = animation == .talkWalk && frame % 4 < 2
+        let flap = isStrideAnimation && frame % 4 < 2
         let y = flap ? 10 : 11
 
         drawRect(in: context, origin: origin, pixel: pixel, x: 3, y: y + 1, width: 4, height: 5, color: palette.outline)
@@ -160,7 +167,7 @@ struct PlaceholderPetView: View {
     }
 
     private func drawArms(in context: GraphicsContext, origin: CGPoint, pixel: CGFloat) {
-        let walk = animation == .talkWalk && frame % 4 < 2
+        let walk = isStrideAnimation && frame % 4 < 2
         let leftY = walk ? 13 : 14
         let rightY = walk ? 15 : 14
 
@@ -171,7 +178,7 @@ struct PlaceholderPetView: View {
     }
 
     private func drawBody(in context: GraphicsContext, origin: CGPoint, pixel: CGFloat) {
-        let stretch = animation == .idleStretch
+        let stretch = animation == .idleStretch || animation == .landBounce
         let squash = stretch && frame > 5
         let yShift = stretch && frame <= 5 ? -1 : 0
         let xInset = squash ? 1 : 0
@@ -256,7 +263,7 @@ struct PlaceholderPetView: View {
             drawPromptGlyph(in: context, origin: origin, pixel: pixel, x: 9 + shift, y: y + 2, color: glyphColor)
             drawRect(in: context, origin: origin, pixel: pixel, x: 13, y: y + 2, width: 2, height: 1, color: glyphColor)
             drawRect(in: context, origin: origin, pixel: pixel, x: 12, y: y + 4, width: frame % 2 == 0 ? 3 : 2, height: 1, color: glyphColor)
-        case .awaitJump, .shieldWait:
+        case .awaitJump, .shieldWait, .startledHop:
             drawRect(in: context, origin: origin, pixel: pixel, x: 9, y: y + 2, width: 2, height: 2, color: palette.warning)
             drawRect(in: context, origin: origin, pixel: pixel, x: 14, y: y + 2, width: 1, height: 3, color: palette.warning)
             drawRect(in: context, origin: origin, pixel: pixel, x: 12, y: y + 4, width: 3, height: 1, color: palette.warning)
@@ -296,7 +303,7 @@ struct PlaceholderPetView: View {
     }
 
     private func drawMotionDetails(in context: GraphicsContext, origin: CGPoint, pixel: CGFloat) {
-        if animation == .talkWalk || animation == .outputBurst {
+        if animation == .talkWalk || animation == .outputBurst || animation == .dragHover {
             let dustOffset = frame % 4 < 2 ? 0 : 2
             drawRect(in: context, origin: origin, pixel: pixel, x: 4 + dustOffset, y: 20, width: 2, height: 1, color: Color.white.opacity(0.22))
             drawRect(in: context, origin: origin, pixel: pixel, x: 18 - dustOffset, y: 21, width: 2, height: 1, color: Color.white.opacity(0.16))
@@ -315,7 +322,7 @@ struct PlaceholderPetView: View {
             let color = animation == .bubbleThink ? palette.accent : palette.sweat
             drawRect(in: context, origin: origin, pixel: pixel, x: 19, y: sweatY, width: 2, height: 3, color: color)
             drawRect(in: context, origin: origin, pixel: pixel, x: 20, y: sweatY + 3, width: 1, height: 1, color: color)
-        case .awaitJump, .shieldWait:
+        case .awaitJump, .shieldWait, .startledHop:
             let flash = frame % 4 < 2
             drawRect(in: context, origin: origin, pixel: pixel, x: 19, y: 3, width: 1, height: 4, color: flash ? palette.warning : palette.spark)
             drawRect(in: context, origin: origin, pixel: pixel, x: 19, y: 8, width: 1, height: 1, color: flash ? palette.warning : palette.spark)
@@ -323,6 +330,10 @@ struct PlaceholderPetView: View {
                 drawRect(in: context, origin: origin, pixel: pixel, x: 3, y: 9, width: 2, height: 8, color: palette.accent.opacity(0.72))
                 drawRect(in: context, origin: origin, pixel: pixel, x: 19, y: 9, width: 2, height: 8, color: palette.accent.opacity(0.72))
             }
+        case .dragHover:
+            let wobble = frame % 4 < 2
+            drawRect(in: context, origin: origin, pixel: pixel, x: 6, y: 3, width: 2, height: 2, color: palette.accent.opacity(wobble ? 0.82 : 0.42))
+            drawRect(in: context, origin: origin, pixel: pixel, x: 17, y: 4, width: 2, height: 2, color: palette.accent.opacity(wobble ? 0.42 : 0.82))
         case .eatToken, .tokenOrbit:
             let tokenX = max(14, 22 - frame)
             drawRect(in: context, origin: origin, pixel: pixel, x: tokenX, y: 11, width: 4, height: 4, color: palette.outline)
@@ -346,6 +357,57 @@ struct PlaceholderPetView: View {
             drawRect(in: context, origin: origin, pixel: pixel, x: 19, y: 3, width: 2, height: 1, color: palette.screenGlyph)
         default:
             break
+        }
+
+        drawStatusEffect(in: context, origin: origin, pixel: pixel)
+    }
+
+    private func drawStatusEffect(in context: GraphicsContext, origin: CGPoint, pixel: CGFloat) {
+        guard statusEffect != .none else {
+            return
+        }
+
+        switch statusEffect {
+        case .none:
+            break
+        case .thinking:
+            let bubbleY = 3 + frame % 3
+            drawRect(in: context, origin: origin, pixel: pixel, x: 18, y: bubbleY, width: 2, height: 2, color: palette.sweat)
+            drawRect(in: context, origin: origin, pixel: pixel, x: 20, y: bubbleY - 1, width: 1, height: 1, color: palette.sweat.opacity(0.78))
+            drawRect(in: context, origin: origin, pixel: pixel, x: 19, y: bubbleY + 3, width: 1, height: 1, color: palette.sweat.opacity(0.72))
+        case .working:
+            let pulse = frame % 6
+            let color = pulse < 3 ? palette.accent : palette.spark
+            drawRect(in: context, origin: origin, pixel: pixel, x: 19, y: 5, width: 1, height: 1, color: color)
+            drawRect(in: context, origin: origin, pixel: pixel, x: 21, y: 6, width: 1, height: 1, color: color.opacity(0.84))
+            drawRect(in: context, origin: origin, pixel: pixel, x: 20, y: 8, width: 1, height: 1, color: color.opacity(0.68))
+        case .streaming:
+            let trail = frame % 4
+            drawRect(in: context, origin: origin, pixel: pixel, x: 3 + trail, y: 6, width: 2, height: 1, color: palette.token.opacity(0.92))
+            drawRect(in: context, origin: origin, pixel: pixel, x: 2 + trail, y: 8, width: 1, height: 1, color: palette.spark.opacity(0.82))
+            drawRect(in: context, origin: origin, pixel: pixel, x: 20 - trail, y: 18, width: 2, height: 1, color: palette.token.opacity(0.72))
+        case .awaitingInput:
+            let flash = frame % 4 < 2
+            let color = flash ? palette.warning : palette.spark
+            drawRect(in: context, origin: origin, pixel: pixel, x: 19, y: 2, width: 2, height: 5, color: color)
+            drawRect(in: context, origin: origin, pixel: pixel, x: 19, y: 8, width: 2, height: 2, color: color)
+        case .error:
+            let glitch = frame % 4 < 2
+            let color = glitch ? palette.warning : palette.mouth
+            drawRect(in: context, origin: origin, pixel: pixel, x: 4, y: 6, width: 3, height: 1, color: color.opacity(0.88))
+            drawRect(in: context, origin: origin, pixel: pixel, x: 18, y: 15, width: 3, height: 1, color: color.opacity(0.78))
+            drawRect(in: context, origin: origin, pixel: pixel, x: 6, y: 20, width: 2, height: 1, color: color.opacity(0.72))
+        case .dragging:
+            let wobble = frame % 4 < 2
+            drawRect(in: context, origin: origin, pixel: pixel, x: 6, y: 3, width: 2, height: 2, color: palette.accent.opacity(wobble ? 0.82 : 0.42))
+            drawRect(in: context, origin: origin, pixel: pixel, x: 17, y: 4, width: 2, height: 2, color: palette.accent.opacity(wobble ? 0.42 : 0.82))
+        case .levelUp:
+            let glow = frame % 2 == 0
+            let color = glow ? palette.spark : palette.star
+            drawRect(in: context, origin: origin, pixel: pixel, x: 4, y: 5, width: 2, height: 2, color: color)
+            drawRect(in: context, origin: origin, pixel: pixel, x: 19, y: 4, width: 2, height: 2, color: color)
+            drawRect(in: context, origin: origin, pixel: pixel, x: 3, y: 18, width: 2, height: 2, color: color)
+            drawRect(in: context, origin: origin, pixel: pixel, x: 21, y: 17, width: 1, height: 3, color: color)
         }
     }
 
@@ -435,6 +497,12 @@ struct PlaceholderPetView: View {
             return CGPoint(x: frame % 4 < 2 ? -1 : 1, y: frame % 2 == 0 ? -1 : 0)
         case .awaitJump, .shieldWait:
             return CGPoint(x: 0, y: frame < 5 ? -3 : -1)
+        case .startledHop:
+            return CGPoint(x: frame % 2 == 0 ? -1 : 1, y: frame < 4 ? -4 : -2)
+        case .dragHover:
+            return CGPoint(x: frame % 4 < 2 ? -1 : 1, y: -4)
+        case .landBounce:
+            return CGPoint(x: 0, y: frame < 3 ? 1 : frame < 6 ? -1 : 0)
         case .eatToken, .evolveGlow, .tokenOrbit, .celebrateDance, .maxVictory, .happyBounce:
             return CGPoint(x: frame % 2 == 0 ? 0 : 1, y: frame % 4 == 0 ? -1 : 0)
         case .nap:
@@ -442,6 +510,10 @@ struct PlaceholderPetView: View {
         case .errorFall:
             return .zero
         }
+    }
+
+    private var isStrideAnimation: Bool {
+        animation == .talkWalk || animation == .outputBurst
     }
 
     private var pupilShift: Int {
@@ -465,7 +537,7 @@ struct PlaceholderPetView: View {
             return palette.glowBody
         case .thinkSweat, .bubbleThink:
             return palette.focusBody
-        case .awaitJump, .shieldWait:
+        case .awaitJump, .shieldWait, .startledHop:
             return palette.alertBody
         default:
             return palette.body
@@ -478,7 +550,7 @@ struct PlaceholderPetView: View {
             return palette.glowShadow
         case .thinkSweat, .bubbleThink:
             return palette.focusShadow
-        case .awaitJump, .shieldWait:
+        case .awaitJump, .shieldWait, .startledHop:
             return palette.alertShadow
         default:
             return palette.bodyShadow
@@ -486,15 +558,15 @@ struct PlaceholderPetView: View {
     }
 
     private var bellyColor: Color {
-        animation == .awaitJump || animation == .shieldWait ? palette.alertBelly : palette.belly
+        animation == .awaitJump || animation == .shieldWait || animation == .startledHop ? palette.alertBelly : palette.belly
     }
 
     private var screenColor: Color {
-        animation == .awaitJump || animation == .shieldWait ? palette.alertScreen : palette.screen
+        animation == .awaitJump || animation == .shieldWait || animation == .startledHop ? palette.alertScreen : palette.screen
     }
 
     private var faceGlyphColor: Color {
-        animation == .awaitJump || animation == .shieldWait ? palette.warning : palette.screenGlyph
+        animation == .awaitJump || animation == .shieldWait || animation == .startledHop ? palette.warning : palette.screenGlyph
     }
 }
 

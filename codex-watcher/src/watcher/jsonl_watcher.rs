@@ -665,7 +665,10 @@ mod tests {
     use std::fs;
     use std::io::Write;
     use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    static TEMP_JSONL_COUNTER: AtomicU64 = AtomicU64::new(0);
 
     #[test]
     fn extracts_session_init_session_id() {
@@ -952,8 +955,9 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
+        let counter = TEMP_JSONL_COUNTER.fetch_add(1, Ordering::Relaxed);
         std::env::temp_dir().join(format!(
-            "codex-island-{label}-{}-{nanos}.jsonl",
+            "codex-island-{label}-{}-{nanos}-{counter}.jsonl",
             std::process::id()
         ))
     }

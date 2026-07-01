@@ -108,6 +108,14 @@ final class NotchIslandPanel: NSPanel {
         relayout(animated: true, anchorsToCurrentTopEdge: false)
     }
 
+    func desktopPetAnchorPoint() -> NSPoint {
+        guard isVisible, frame.width > 0, frame.height > 0 else {
+            return fallbackDesktopPetAnchorPoint()
+        }
+
+        return NSPoint(x: frame.midX, y: frame.minY + 2)
+    }
+
     private func observeSettings() {
         settings.$capsuleStyle
             .dropFirst()
@@ -277,11 +285,8 @@ final class NotchIslandPanel: NSPanel {
         let deltaY = location.y - dragStartMouseLocation.y
         let proposedFrame = dragStartFrame.offsetBy(dx: deltaX, dy: deltaY)
 
-        let bounds = virtualDragFrame()
-            ?? targetScreen().map { usableFrame(for: $0) }
-            ?? proposedFrame
         let resistedFrame = frameAfterApplyingDisplayBoundaryResistance(to: proposedFrame)
-        setFrame(clampedFrame(resistedFrame, in: bounds), display: true)
+        setFrame(resistedFrame, display: true)
     }
 
     private func endDrag() {
@@ -306,6 +311,7 @@ final class NotchIslandPanel: NSPanel {
     private func saveCurrentPosition() {
         guard let screen = screen(containing: NSPoint(x: frame.midX, y: frame.midY))
             ?? screen(withLargestIntersection: frame)
+            ?? screen(nearestTo: NSPoint(x: frame.midX, y: frame.midY))
             ?? targetScreen() else {
             return
         }
@@ -350,18 +356,16 @@ final class NotchIslandPanel: NSPanel {
                 on: screen
             )
             : proposedWindowFrame
-        let windowFrame = clampedFrame(anchoredWindowFrame, on: screen)
-
         if animated {
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = currentShape == .expanded ? 0.30 : 0.25
                 context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                animator().setFrame(windowFrame, display: true)
+                animator().setFrame(anchoredWindowFrame, display: true)
             } completionHandler: {
                 completion?()
             }
         } else {
-            setFrame(windowFrame, display: true)
+            setFrame(anchoredWindowFrame, display: true)
             completion?()
         }
     }
@@ -374,6 +378,18 @@ final class NotchIslandPanel: NSPanel {
         }
 
         return primaryScreen(from: screens)
+    }
+
+    private func fallbackDesktopPetAnchorPoint() -> NSPoint {
+        guard let screen = targetScreen() else {
+            return NSEvent.mouseLocation
+        }
+
+        let notchFrame = calculateNotchFrame(for: screen)
+        return NSPoint(
+            x: notchFrame.midX,
+            y: usableFrame(for: screen).maxY - IslandShape.topGap - IslandShape.fallbackCompactSize.height
+        )
     }
 
     private func primaryScreen(from screens: [NSScreen]) -> NSScreen? {
@@ -487,36 +503,21 @@ final class NotchIslandPanel: NSPanel {
     }
 
     private func screen(withLargestIntersection rect: NSRect) -> NSScreen? {
-        NSScreen.screens.max { lhs, rhs in
+        let screen = NSScreen.screens.max { lhs, rhs in
             lhs.frame.intersection(rect).area < rhs.frame.intersection(rect).area
         }
+        guard let screen,
+              screen.frame.intersection(rect).area > 0 else {
+            return nil
+        }
+
+        return screen
     }
 
-    private func clampedFrame(_ frame: NSRect, on screen: NSScreen) -> NSRect {
-        let usableFrame = usableFrame(for: screen)
-        let minX = usableFrame.minX
-        let maxX = usableFrame.maxX - frame.width
-        let minY = usableFrame.minY
-        let maxY = usableFrame.maxY - frame.height
-
-        return NSRect(
-            x: min(max(frame.minX, minX), maxX),
-            y: min(max(frame.minY, minY), maxY),
-            width: frame.width,
-            height: frame.height
-        )
-    }
-
-    private func clampedFrame(_ frame: NSRect, in bounds: NSRect) -> NSRect {
-        let maxX = max(bounds.minX, bounds.maxX - frame.width)
-        let maxY = max(bounds.minY, bounds.maxY - frame.height)
-
-        return NSRect(
-            x: min(max(frame.minX, bounds.minX), maxX),
-            y: min(max(frame.minY, bounds.minY), maxY),
-            width: frame.width,
-            height: frame.height
-        )
+    private func screen(nearestTo point: NSPoint) -> NSScreen? {
+        NSScreen.screens.min { lhs, rhs in
+            lhs.frame.squaredDistance(to: point) < rhs.frame.squaredDistance(to: point)
+        }
     }
 
     private func frameAfterApplyingDisplayBoundaryResistance(to proposedFrame: NSRect) -> NSRect {
@@ -614,19 +615,6 @@ final class NotchIslandPanel: NSPanel {
         }
     }
 
-    private func virtualDragFrame() -> NSRect? {
-        let frames = NSScreen.screens.map { usableFrame(for: $0) }
-        guard var combinedFrame = frames.first else {
-            return nil
-        }
-
-        for frame in frames.dropFirst() {
-            combinedFrame = combinedFrame.union(frame)
-        }
-
-        return combinedFrame
-    }
-
     private func usableFrame(for screen: NSScreen) -> NSRect {
         let visibleFrame = screen.visibleFrame
 
@@ -692,21 +680,17 @@ private final class IslandPositionStore {
             return nil
         }
 
-        let maxX = max(usableFrame.width - size.width, 1)
-        let maxY = max(usableFrame.height - size.height, 1)
-
-        return NSPoint(
-            x: usableFrame.minX + maxX * position.xRatio,
-            y: usableFrame.minY + maxY * position.yRatio
+        return IslandPositionGeometry.origin(
+            for: size,
+            usableFrame: usableFrame,
+            position: position
         )
     }
 
     func save(frame: NSRect, on screen: NSScreen, usableFrame: NSRect) {
-        let maxX = max(usableFrame.width - frame.width, 1)
-        let maxY = max(usableFrame.height - frame.height, 1)
-        let position = SavedIslandPosition(
-            xRatio: min(max((frame.minX - usableFrame.minX) / maxX, 0), 1),
-            yRatio: min(max((frame.minY - usableFrame.minY) / maxY, 0), 1)
+        let position = IslandPositionGeometry.position(
+            for: frame,
+            usableFrame: usableFrame
         )
 
         if let data = try? JSONEncoder().encode(position) {
@@ -748,7 +732,33 @@ private final class IslandPositionStore {
     }
 }
 
-private struct SavedIslandPosition: Codable {
+enum IslandPositionGeometry {
+    static func position(for frame: NSRect, usableFrame: NSRect) -> SavedIslandPosition {
+        let maxX = max(usableFrame.width - frame.width, 1)
+        let maxY = max(usableFrame.height - frame.height, 1)
+
+        return SavedIslandPosition(
+            xRatio: (frame.minX - usableFrame.minX) / maxX,
+            yRatio: (frame.minY - usableFrame.minY) / maxY
+        )
+    }
+
+    static func origin(
+        for size: NSSize,
+        usableFrame: NSRect,
+        position: SavedIslandPosition
+    ) -> NSPoint {
+        let maxX = max(usableFrame.width - size.width, 1)
+        let maxY = max(usableFrame.height - size.height, 1)
+
+        return NSPoint(
+            x: usableFrame.minX + maxX * position.xRatio,
+            y: usableFrame.minY + maxY * position.yRatio
+        )
+    }
+}
+
+struct SavedIslandPosition: Codable, Equatable {
     let xRatio: CGFloat
     let yRatio: CGFloat
 }
@@ -806,6 +816,28 @@ private extension NSRect {
         }
 
         return width * height
+    }
+
+    func squaredDistance(to point: NSPoint) -> CGFloat {
+        let dx: CGFloat
+        if point.x < minX {
+            dx = minX - point.x
+        } else if point.x > maxX {
+            dx = point.x - maxX
+        } else {
+            dx = 0
+        }
+
+        let dy: CGFloat
+        if point.y < minY {
+            dy = minY - point.y
+        } else if point.y > maxY {
+            dy = point.y - maxY
+        } else {
+            dy = 0
+        }
+
+        return dx * dx + dy * dy
     }
 }
 

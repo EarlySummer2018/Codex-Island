@@ -2,18 +2,25 @@ import SwiftUI
 
 struct StreamingView: View {
     var animationName: PetAnimation = .talkWalk
+    @ObservedObject private var eventBus = EventBus.shared
     @ObservedObject private var settings = AppSettingsStore.shared
     @ObservedObject private var evolutionStore = PetEvolutionStore.shared
 
     var body: some View {
         HStack(spacing: 10) {
-            RoamingPetView(
-                animationName: animationName,
-                form: evolutionStore.currentForm,
-                level: evolutionStore.level,
-                feedTrigger: evolutionStore.feedTrigger,
-                levelUpTrigger: evolutionStore.levelUpTrigger
-            )
+            if settings.isDesktopPetEnabled {
+                Color.clear
+                    .frame(width: 28, height: 28)
+            } else {
+                RoamingPetView(
+                    animationName: animationName,
+                    form: evolutionStore.currentForm,
+                    level: evolutionStore.level,
+                    feedTrigger: evolutionStore.feedTrigger,
+                    levelUpTrigger: evolutionStore.levelUpTrigger,
+                    statusEffect: PetStatusEffect.from(state: eventBus.sessionState)
+                )
+            }
 
             TokenInfoRow(style: settings.capsuleStyle)
         }

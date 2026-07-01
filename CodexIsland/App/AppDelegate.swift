@@ -22,6 +22,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Phase 05 creates and positions the notch window.
         NotchIslandPanel.shared.show()
+        DesktopPetController.shared.configure()
 
         print("CodexIsland launched")
     }
@@ -55,6 +56,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             .store(in: &cancellables)
 
         settings.$isCapsuleVisible
+            .dropFirst()
+            .sink { [weak self] _ in
+                self?.scheduleStatusMenuRebuild()
+            }
+            .store(in: &cancellables)
+
+        settings.$isDesktopPetEnabled
             .dropFirst()
             .sink { [weak self] _ in
                 self?.scheduleStatusMenuRebuild()
@@ -95,6 +103,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(
             withTitle: settings.text(settings.isCapsuleVisible ? .hideCapsule : .showCapsule),
             action: #selector(toggleCapsuleVisibility),
+            keyEquivalent: ""
+        ).target = self
+
+        menu.addItem(
+            withTitle: settings.text(settings.isDesktopPetEnabled ? .disableDesktopPet : .enableDesktopPet),
+            action: #selector(toggleDesktopPet),
             keyEquivalent: ""
         ).target = self
 
@@ -211,9 +225,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if settings.isCapsuleVisible {
             NotchIslandPanel.shared.show()
         } else {
+            settings.isDesktopPetEnabled = false
             NotchIslandPanel.shared.hide()
         }
 
+        scheduleStatusMenuRebuild()
+    }
+
+    @objc private func toggleDesktopPet() {
+        guard settings.isCapsuleVisible || settings.isDesktopPetEnabled else {
+            return
+        }
+
+        settings.isDesktopPetEnabled.toggle()
         scheduleStatusMenuRebuild()
     }
 
@@ -274,6 +298,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        DesktopPetController.shared.stopImmediately()
         SidecarBridge.shared.stop()
     }
 

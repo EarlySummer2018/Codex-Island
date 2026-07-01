@@ -51,7 +51,8 @@ struct ExpandedPanelView: View {
                     form: evolutionStore.currentForm,
                     level: evolutionStore.level,
                     feedTrigger: evolutionStore.feedTrigger,
-                    levelUpTrigger: evolutionStore.levelUpTrigger
+                    levelUpTrigger: evolutionStore.levelUpTrigger,
+                    statusEffect: PetStatusEffect.from(state: eventBus.sessionState)
                 )
             }
             .frame(width: 38, height: 38)
@@ -131,7 +132,8 @@ struct ExpandedPanelView: View {
                 form: evolutionStore.currentForm,
                 level: evolutionStore.level,
                 feedTrigger: evolutionStore.feedTrigger,
-                levelUpTrigger: evolutionStore.levelUpTrigger
+                levelUpTrigger: evolutionStore.levelUpTrigger,
+                statusEffect: PetStatusEffect.from(state: eventBus.sessionState)
             )
 
             HStack(spacing: 8) {
@@ -188,7 +190,7 @@ struct ExpandedPanelView: View {
 
             HStack(spacing: 6) {
                 ConsoleStat(title: turnTitle, value: turnText, color: PanelPalette.cyan)
-                ConsoleStat(title: outputTitle, value: TokenFormatter.format(store.totalOutput), color: TokenColors.output)
+                ConsoleStat(title: todayTitle, value: TokenFormatter.format(store.todayTotalTokens), color: TokenColors.output)
                 ConsoleStat(title: totalTitle, value: TokenFormatter.format(store.totalTokens), color: PanelPalette.magenta)
             }
 
@@ -270,10 +272,6 @@ struct ExpandedPanelView: View {
         return "\(settings.text(.sessionTotalPrefix))\(TokenFormatter.format(token.totalTokens))\(settings.text(.sessionTotalSuffix))"
     }
 
-    private var globalTotal: Int {
-        evolutionStore.globalUsage?.totalTokens ?? store.totalTokens
-    }
-
     private var evolutionProgress: Double {
         evolutionStore.levelProgress
     }
@@ -342,12 +340,12 @@ struct ExpandedPanelView: View {
         }
     }
 
-    private var outputTitle: String {
+    private var todayTitle: String {
         switch settings.language {
         case .chinese:
-            return settings.text(.output)
+            return "今日"
         case .english:
-            return "OUT"
+            return "TODAY"
         }
     }
 

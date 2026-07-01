@@ -11,6 +11,7 @@ final class EventBus: ObservableObject {
     @Published private(set) var activeSessionId: String?
 
     private let minimumActiveDisplayDuration: TimeInterval = 1.4
+    private let maxTrackedSessions = 32
     private var sessionStates: [String: CodexSessionState] = [:]
     private var sessionAwaitReasons: [String: AwaitReason] = [:]
     private var sessionTokens: [String: TokenSnapshot] = [:]
@@ -63,6 +64,7 @@ final class EventBus: ObservableObject {
         }
 
         applyActiveSession()
+        pruneTrackedSessions()
     }
 
     private func shouldDelayRestingState(_ event: SessionStateEvent) -> Bool {
@@ -112,6 +114,7 @@ final class EventBus: ObservableObject {
         if isActiveSnapshot {
             latestToken = snapshot
         }
+        pruneTrackedSessions()
     }
 
     private func applyActiveSession() {
@@ -153,6 +156,31 @@ final class EventBus: ObservableObject {
         }
 
         return !(sessionStates[activeSessionId] ?? .idle).shouldPromoteToFront
+    }
+
+    private func pruneTrackedSessions() {
+        guard sessionLastActivity.count > maxTrackedSessions else {
+            return
+        }
+
+        let protectedSessionId = activeSessionId
+        let removable = sessionLastActivity
+            .filter { item in
+                item.key != protectedSessionId
+            }
+            .sorted { lhs, rhs in
+                lhs.value < rhs.value
+            }
+            .prefix(max(sessionLastActivity.count - maxTrackedSessions, 0))
+
+        for item in removable {
+            sessionStates.removeValue(forKey: item.key)
+            sessionAwaitReasons.removeValue(forKey: item.key)
+            sessionTokens.removeValue(forKey: item.key)
+            sessionLastActivity.removeValue(forKey: item.key)
+            pendingRestTasks[item.key]?.cancel()
+            pendingRestTasks.removeValue(forKey: item.key)
+        }
     }
 
 }

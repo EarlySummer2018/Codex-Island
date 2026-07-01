@@ -16,7 +16,8 @@ struct AwaitingView: View {
                 form: evolutionStore.currentForm,
                 level: evolutionStore.level,
                 feedTrigger: feedTrigger,
-                levelUpTrigger: evolutionStore.levelUpTrigger
+                levelUpTrigger: evolutionStore.levelUpTrigger,
+                statusEffect: .awaitingInput
             )
 
             Divider()

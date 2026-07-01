@@ -39,11 +39,14 @@ async fn main() -> Result<()> {
 
     let (event_tx, mut event_rx) = mpsc::channel::<parser::RawEvent>(1024);
     watcher::start_all_watchers(&sessions_dir, event_tx).await;
-    let mut global_token_aggregator =
-        parser::global_token_usage::GlobalTokenAggregator::load_from_sessions_dir(&sessions_dir);
-    let global_token_snapshot = global_token_aggregator.snapshot();
+    let mut token_usage_aggregators =
+        parser::global_token_usage::TokenUsageAggregators::load_from_sessions_dir(&sessions_dir);
+    let global_token_snapshot = token_usage_aggregators.global.snapshot();
+    let daily_token_snapshot = token_usage_aggregators.daily.snapshot();
     info!("GlobalTokenUsageSnapshot: {:?}", global_token_snapshot);
     ipc_server.publish(&global_token_snapshot);
+    info!("DailyTokenUsageSnapshot: {:?}", daily_token_snapshot);
+    ipc_server.publish(&daily_token_snapshot);
 
     let mut token_parser = parser::token_parser::TokenParser::new();
     let mut state_parser = parser::state_parser::StateParser::new();
@@ -76,11 +79,15 @@ async fn main() -> Result<()> {
                 if let Some(snapshot) = token_parser.process_event(&event) {
                     info!("TokenSnapshot: {:?}", snapshot);
                     ipc_server.publish(&snapshot);
-                    if let Some(global_token_snapshot) =
-                        global_token_aggregator.update_from_snapshot(&snapshot)
-                    {
+                    let (global_token_snapshot, daily_token_snapshot) =
+                        token_usage_aggregators.update_from_snapshot(&snapshot);
+                    if let Some(global_token_snapshot) = global_token_snapshot {
                         info!("GlobalTokenUsageSnapshot: {:?}", global_token_snapshot);
                         ipc_server.publish(&global_token_snapshot);
+                    }
+                    if let Some(daily_token_snapshot) = daily_token_snapshot {
+                        info!("DailyTokenUsageSnapshot: {:?}", daily_token_snapshot);
+                        ipc_server.publish(&daily_token_snapshot);
                     }
                 }
                 ipc_server.publish(&event);

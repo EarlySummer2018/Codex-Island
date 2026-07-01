@@ -39,21 +39,9 @@ pub struct TokenSnapshot {
 }
 
 impl TokenSnapshot {
+    #[cfg(test)]
     pub fn cache_hit_percent(&self) -> String {
         format!("{:.1}%", self.cache_hit_rate * 100.0)
-    }
-
-    pub fn total_tokens(&self) -> u64 {
-        self.total_input + self.total_output
-    }
-
-    pub fn estimated_saving_ratio(&self) -> f64 {
-        if self.delta_input == 0 {
-            return 0.0;
-        }
-
-        let saved = self.delta_cached_input as f64 * 0.9;
-        saved / self.delta_input as f64
     }
 }
 
@@ -184,6 +172,7 @@ impl TokenParser {
         Some(snapshot)
     }
 
+    #[cfg(test)]
     pub fn clear_session(&mut self, session_file: &str) {
         self.accumulators.remove(session_file);
         self.turn_indices.remove(session_file);

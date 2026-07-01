@@ -170,6 +170,10 @@ final class SidecarBridge {
             Task { @MainActor in
                 PetEvolutionStore.shared.update(with: snapshot)
             }
+        case .dailyToken(let snapshot):
+            Task { @MainActor in
+                TokenStore.shared.update(with: snapshot)
+            }
         case .ignored:
             break
         case .invalid(let error):
@@ -202,15 +206,16 @@ final class SidecarBridge {
     }
 }
 
-private enum IpcMessage {
+enum IpcMessage {
     case state(SessionStateEvent)
     case token(TokenSnapshot)
     case globalToken(GlobalTokenUsageSnapshot)
+    case dailyToken(DailyTokenUsageSnapshot)
     case ignored
     case invalid(Error)
 }
 
-private final class IpcEventDecoder {
+final class IpcEventDecoder {
     private let jsonDecoder: JSONDecoder
 
     init() {
@@ -247,6 +252,10 @@ private final class IpcEventDecoder {
 
             if object["type"] as? String == "global_token_usage" {
                 return .globalToken(try jsonDecoder.decode(GlobalTokenUsageSnapshot.self, from: data))
+            }
+
+            if object["type"] as? String == "daily_token_usage" {
+                return .dailyToken(try jsonDecoder.decode(DailyTokenUsageSnapshot.self, from: data))
             }
 
             if object["state"] != nil, object["session_id"] != nil {

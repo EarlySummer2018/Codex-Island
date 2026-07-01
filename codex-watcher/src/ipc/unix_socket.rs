@@ -19,6 +19,7 @@ struct ReplayCache {
     state: Option<String>,
     token: Option<String>,
     global_token: Option<String>,
+    daily_token: Option<String>,
 }
 
 impl ReplayCache {
@@ -29,6 +30,11 @@ impl ReplayCache {
 
         if value.get("type").and_then(|value| value.as_str()) == Some("global_token_usage") {
             self.global_token = Some(message.to_string());
+            return;
+        }
+
+        if value.get("type").and_then(|value| value.as_str()) == Some("daily_token_usage") {
+            self.daily_token = Some(message.to_string());
             return;
         }
 
@@ -46,6 +52,9 @@ impl ReplayCache {
         let mut messages = Vec::new();
         if let Some(global_token) = &self.global_token {
             messages.push(global_token.clone());
+        }
+        if let Some(daily_token) = &self.daily_token {
+            messages.push(daily_token.clone());
         }
         if let Some(token) = &self.token {
             messages.push(token.clone());
@@ -154,6 +163,9 @@ mod tests {
             r#"{"type":"global_token_usage","total_input":300,"total_cached_input":140,"total_output":37,"total_reasoning":3,"total_tokens":337,"session_count":2,"updated_at":"2026-06-28T08:00:00Z"}"#,
         );
         cache.update(
+            r#"{"type":"daily_token_usage","local_date":"2026-06-28","total_input":120,"total_cached_input":40,"total_output":20,"total_reasoning":2,"total_tokens":140,"session_count":1,"updated_at":"2026-06-28T08:00:00Z"}"#,
+        );
+        cache.update(
             r#"{"session_id":"session-a","session_file":"/tmp/a.jsonl","delta_input":20,"delta_cached_input":10,"delta_uncached_input":10,"delta_output":7,"delta_reasoning":1,"total_input":80,"total_cached_input":20,"total_uncached_input":60,"total_output":7,"total_reasoning":1,"cache_hit_rate":0.25,"timestamp":"2026-06-28T08:00:00Z","turn_index":1}"#,
         );
         cache.update(
@@ -162,9 +174,10 @@ mod tests {
 
         let messages = cache.messages();
 
-        assert_eq!(messages.len(), 3);
+        assert_eq!(messages.len(), 4);
         assert!(messages[0].contains(r#""type":"global_token_usage""#));
-        assert!(messages[1].contains(r#""delta_output":7"#));
-        assert!(messages[2].contains(r#""state":"streaming""#));
+        assert!(messages[1].contains(r#""type":"daily_token_usage""#));
+        assert!(messages[2].contains(r#""delta_output":7"#));
+        assert!(messages[3].contains(r#""state":"streaming""#));
     }
 }

@@ -19,6 +19,9 @@ enum PetAnimation: String, Equatable {
     case celebrateDance = "celebrate_dance"
     case spiritIdle = "spirit_idle"
     case maxVictory = "max_victory"
+    case startledHop = "startled_hop"
+    case dragHover = "drag_hover"
+    case landBounce = "land_bounce"
 
     var frameCount: Int {
         switch self {
@@ -56,14 +59,20 @@ enum PetAnimation: String, Equatable {
             return 8
         case .maxVictory:
             return 16
+        case .startledHop:
+            return 8
+        case .dragHover:
+            return 8
+        case .landBounce:
+            return 8
         }
     }
 
     var fps: Int {
         switch self {
-        case .awaitJump, .happyBounce, .shieldWait, .tokenOrbit, .celebrateDance:
+        case .awaitJump, .happyBounce, .shieldWait, .tokenOrbit, .celebrateDance, .startledHop, .landBounce:
             return 10
-        case .talkWalk, .outputBurst, .maxVictory:
+        case .talkWalk, .outputBurst, .maxVictory, .dragHover:
             return 12
         case .nap:
             return 6
@@ -82,7 +91,9 @@ enum PetAnimation: String, Equatable {
              .nap,
              .tokenOrbit,
              .celebrateDance,
-             .maxVictory:
+             .maxVictory,
+             .startledHop,
+             .landBounce:
             return 1
         case .idleBreathe,
              .thinkSweat,
@@ -92,7 +103,8 @@ enum PetAnimation: String, Equatable {
              .outputBurst,
              .hoverIdle,
              .shieldWait,
-             .spiritIdle:
+             .spiritIdle,
+             .dragHover:
             return nil
         }
     }
@@ -156,6 +168,133 @@ enum PetAnimation: String, Equatable {
             return true
         default:
             return false
+        }
+    }
+}
+
+enum PetStatusEffect: String, Equatable {
+    case none
+    case thinking
+    case working
+    case streaming
+    case awaitingInput
+    case error
+    case dragging
+    case levelUp
+
+    static func from(state: CodexSessionState) -> PetStatusEffect {
+        switch state {
+        case .idle:
+            return .none
+        case .thinking:
+            return .thinking
+        case .working:
+            return .working
+        case .streaming:
+            return .streaming
+        case .awaitingInput:
+            return .awaitingInput
+        case .error:
+            return .error
+        }
+    }
+}
+
+enum FurinaPetAtlasSpec {
+    static let assetName = "FurinaPetSpritesheet"
+    static let columns = 8
+    static let rows = 9
+    static let cellWidth = 192
+    static let cellHeight = 208
+    static let atlasWidth = columns * cellWidth
+    static let atlasHeight = rows * cellHeight
+
+    static func normalizedFrameIndex(_ frame: Int) -> Int {
+        let remainder = frame % columns
+        return remainder >= 0 ? remainder : remainder + columns
+    }
+}
+
+enum FurinaPetAtlasState: Int, CaseIterable, Equatable {
+    case idle = 0
+    case runningRight = 1
+    case runningLeft = 2
+    case waving = 3
+    case jumping = 4
+    case failed = 5
+    case waiting = 6
+    case running = 7
+    case review = 8
+
+    var row: Int {
+        rawValue
+    }
+}
+
+extension PetAnimation {
+    var furinaAtlasState: FurinaPetAtlasState {
+        switch self {
+        case .idleBreathe, .hoverIdle, .spiritIdle, .nap:
+            return .idle
+        case .talkWalk, .outputBurst:
+            return .running
+        case .idleStretch, .happyBounce, .evolveGlow, .celebrateDance, .maxVictory:
+            return .waving
+        case .awaitJump, .shieldWait:
+            return .waiting
+        case .errorFall:
+            return .failed
+        case .eatToken, .thinkSweat, .bubbleThink, .tokenOrbit:
+            return .review
+        case .startledHop, .dragHover, .landBounce:
+            return .jumping
+        }
+    }
+
+    var usesDirectionalFurinaMovementRows: Bool {
+        switch self {
+        case .talkWalk, .outputBurst:
+            return true
+        default:
+            return false
+        }
+    }
+
+    func furinaAtlasState(facingLeft: Bool?) -> FurinaPetAtlasState {
+        guard usesDirectionalFurinaMovementRows,
+              let facingLeft else {
+            return furinaAtlasState
+        }
+
+        return facingLeft ? .runningLeft : .runningRight
+    }
+
+    var inferredStatusEffect: PetStatusEffect {
+        switch self {
+        case .thinkSweat, .bubbleThink:
+            return .thinking
+        case .outputBurst:
+            return .streaming
+        case .awaitJump, .shieldWait:
+            return .awaitingInput
+        case .errorFall:
+            return .error
+        case .dragHover:
+            return .dragging
+        case .evolveGlow, .celebrateDance, .maxVictory:
+            return .levelUp
+        case .idleBreathe,
+             .idleStretch,
+             .talkWalk,
+             .eatToken,
+             .happyBounce,
+             .nap,
+             .hoverIdle,
+             .tokenOrbit,
+             .spiritIdle,
+             .startledHop,
+             .landBounce:
+            return .none
         }
     }
 }

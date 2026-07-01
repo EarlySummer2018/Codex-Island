@@ -56,14 +56,17 @@ final class TokenStore: ObservableObject {
 
     @Published private(set) var latest: TokenSnapshot?
     @Published private(set) var history: [TokenSnapshot] = []
+    @Published private(set) var dailyUsage: DailyTokenUsageSnapshot?
 
     private var historiesBySession: [String: [TokenSnapshot]] = [:]
+    private let maxStoredSessions = 32
 
     var totalInput: Int { latest?.totalInput ?? 0 }
     var totalCachedInput: Int { latest?.totalCachedInput ?? 0 }
     var totalUncachedInput: Int { latest?.totalUncachedInput ?? 0 }
     var totalOutput: Int { latest?.totalOutput ?? 0 }
     var totalTokens: Int { latest?.totalTokens ?? 0 }
+    var todayTotalTokens: Int { dailyUsage?.totalTokens ?? 0 }
     var cacheHitPercent: String { latest?.cacheHitPercent ?? "0.0%" }
 
     func update(with snapshot: TokenSnapshot, isActive: Bool = true) {
@@ -75,11 +78,16 @@ final class TokenStore: ObservableObject {
         }
 
         historiesBySession[snapshot.sessionId] = sessionHistory
+        pruneStoredSessions()
 
         if isActive {
             latest = snapshot
             history = sessionHistory
         }
+    }
+
+    func update(with snapshot: DailyTokenUsageSnapshot) {
+        dailyUsage = snapshot
     }
 
     func showSession(_ sessionId: String, latest snapshot: TokenSnapshot?) {
@@ -91,5 +99,25 @@ final class TokenStore: ObservableObject {
         latest = nil
         history.removeAll()
         historiesBySession.removeAll()
+        dailyUsage = nil
+    }
+
+    private func pruneStoredSessions() {
+        guard historiesBySession.count > maxStoredSessions else {
+            return
+        }
+
+        let removable = historiesBySession
+            .map { item in
+                (sessionId: item.key, lastDate: item.value.last?.timestamp ?? .distantPast)
+            }
+            .sorted { lhs, rhs in
+                lhs.lastDate < rhs.lastDate
+            }
+            .prefix(historiesBySession.count - maxStoredSessions)
+
+        for item in removable {
+            historiesBySession.removeValue(forKey: item.sessionId)
+        }
     }
 }

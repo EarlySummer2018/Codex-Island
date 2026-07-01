@@ -26,6 +26,8 @@ enum AppTextKey {
     case appName
     case showCapsule
     case hideCapsule
+    case enableDesktopPet
+    case disableDesktopPet
     case capsuleStyle
     case largeCapsule
     case smallCapsule
@@ -79,10 +81,17 @@ final class AppSettingsStore: ObservableObject {
         }
     }
 
+    @Published var isDesktopPetEnabled: Bool {
+        didSet {
+            defaults.set(isDesktopPetEnabled, forKey: desktopPetEnabledKey)
+        }
+    }
+
     private let defaults = UserDefaults.standard
     private let capsuleStyleKey = "CodexIsland.Settings.capsuleStyle"
     private let languageKey = "CodexIsland.Settings.language"
     private let capsuleVisibleKey = "CodexIsland.Settings.capsuleVisible"
+    private let desktopPetEnabledKey = "CodexIsland.Settings.desktopPetEnabled"
 
     private init() {
         let savedStyle = defaults.string(forKey: capsuleStyleKey)
@@ -90,10 +99,12 @@ final class AppSettingsStore: ObservableObject {
         let savedLanguage = defaults.string(forKey: languageKey)
             .flatMap(AppLanguage.init(rawValue:)) ?? .chinese
         let savedVisibility = defaults.object(forKey: capsuleVisibleKey) as? Bool ?? true
+        let savedDesktopPetEnabled = defaults.object(forKey: desktopPetEnabledKey) as? Bool ?? false
 
         capsuleStyle = savedStyle
         language = savedLanguage
         isCapsuleVisible = savedVisibility
+        isDesktopPetEnabled = savedDesktopPetEnabled
     }
 
     func text(_ key: AppTextKey) -> String {
@@ -110,6 +121,8 @@ final class AppSettingsStore: ObservableObject {
         case .appName: return "Codex Island"
         case .showCapsule: return "显示胶囊"
         case .hideCapsule: return "隐藏胶囊"
+        case .enableDesktopPet: return "开启桌宠模式"
+        case .disableDesktopPet: return "关闭桌宠模式"
         case .capsuleStyle: return "胶囊样式"
         case .largeCapsule: return "大胶囊"
         case .smallCapsule: return "小胶囊"
@@ -147,6 +160,8 @@ final class AppSettingsStore: ObservableObject {
         case .appName: return "Codex Island"
         case .showCapsule: return "Show Capsule"
         case .hideCapsule: return "Hide Capsule"
+        case .enableDesktopPet: return "Enable Desktop Pet"
+        case .disableDesktopPet: return "Disable Desktop Pet"
         case .capsuleStyle: return "Capsule Style"
         case .largeCapsule: return "Large Capsule"
         case .smallCapsule: return "Small Capsule"
