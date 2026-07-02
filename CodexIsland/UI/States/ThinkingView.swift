@@ -8,7 +8,11 @@ struct ThinkingView: View {
     var body: some View {
         HStack(spacing: 8) {
             PixelPetView(
-                animationName: PetAnimation.from(state: .thinking, level: evolutionStore.level),
+                animationName: PetAnimation.from(
+                    state: .running,
+                    activityKind: .reasoning,
+                    level: evolutionStore.level
+                ),
                 size: 22,
                 form: evolutionStore.currentForm,
                 level: evolutionStore.level,

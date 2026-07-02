@@ -45,7 +45,7 @@ final class AwaitNotificationCoordinator {
 
     private func sendNotification(reason: AwaitReason?) {
         let content = UNMutableNotificationContent()
-        content.title = "Codex 正在等待您的回复"
+        content.title = "Codex 正在等待输入"
         content.body = notificationBody(for: reason)
         content.sound = .default
         content.categoryIdentifier = "CODEX_AWAIT"

@@ -7,7 +7,7 @@ Codex Island is a small macOS companion for Codex Desktop. It watches local Code
 ## Features
 
 - Persistent top capsule with current-session `IN`, `CACHE`, `OUT`, and `TOTAL` token counters.
-- Pixel pet that reacts to Codex states: idle, thinking, streaming, waiting for input, and error.
+- Pixel pet that follows official Codex runtime states: idle, running, waiting for input, ready for review, and error, with secondary activity hints such as reasoning, command execution, file changes, web search, and reply generation.
 - Pet evolution driven by global token usage across all local Codex sessions.
 - Long-press dragging with per-display position persistence.
 - Menu bar controls for capsule size, language, cache folders, Codex activation, updates, and app visibility.
@@ -59,7 +59,7 @@ Unix socket IPC
 CodexIsland.app (Swift/AppKit/SwiftUI)
 ```
 
-The Rust sidecar tails `~/.codex/sessions/**/*.jsonl`, sanitizes events, emits current-session token snapshots, aggregates global token usage, and broadcasts newline-delimited JSON over a Unix socket. The Swift app renders the floating capsule, menu bar controls, token counters, pet animation, and awaiting-input alerts.
+The Rust sidecar consumes Codex App-Server runtime and item events first, falls back to sanitized `~/.codex/sessions/**/*.jsonl` metadata when needed, emits current-session token snapshots, aggregates global token usage, and broadcasts newline-delimited JSON over a Unix socket. The Swift app renders the floating capsule, menu bar controls, token counters, pet animation, and waiting-for-input alerts.
 
 ## Privacy
 

@@ -7,17 +7,44 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use tokio::time::{Duration, Instant};
-use tracing::{debug, info};
+use tracing::info;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum SessionState {
+    NotLoaded,
     Idle,
-    Thinking,
-    Working,
-    Streaming,
-    AwaitingInput,
+    Running,
+    WaitingForInput,
+    ReadyForReview,
     Error,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ActivityKind {
+    None,
+    Reasoning,
+    CommandExecution,
+    FileChange,
+    WebSearch,
+    AgentMessage,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TurnState {
+    InProgress,
+    Completed,
+    Interrupted,
+    Failed,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum StateSource {
+    AppServer,
+    Jsonl,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -32,10 +59,13 @@ pub enum AwaitReason {
     },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SessionStateEvent {
     pub session_id: String,
     pub state: SessionState,
+    pub activity_kind: ActivityKind,
+    pub turn_state: Option<TurnState>,
+    pub source: StateSource,
     pub timestamp: DateTime<Utc>,
     pub await_reason: Option<AwaitReason>,
 }
@@ -43,22 +73,36 @@ pub struct SessionStateEvent {
 #[derive(Debug, Clone)]
 struct SessionTracker {
     state: SessionState,
+    activity_kind: ActivityKind,
+    turn_state: Option<TurnState>,
+    await_reason: Option<AwaitReason>,
     last_token_time: Option<Instant>,
     last_output_tokens: u64,
     error_since: Option<Instant>,
-    streaming_timeout: Duration,
+    running_timeout: Duration,
     error_timeout: Duration,
+    fallback_file_change_pin_until: Option<Instant>,
+    fallback_file_change_pin_duration: Duration,
+    runtime_locked_to_ws: bool,
+    activity_locked_to_ws: bool,
 }
 
 impl Default for SessionTracker {
     fn default() -> Self {
         Self {
-            state: SessionState::Idle,
+            state: SessionState::NotLoaded,
+            activity_kind: ActivityKind::None,
+            turn_state: None,
+            await_reason: None,
             last_token_time: None,
             last_output_tokens: 0,
             error_since: None,
-            streaming_timeout: Duration::from_secs(4),
+            running_timeout: Duration::from_secs(4),
             error_timeout: Duration::from_secs(3),
+            fallback_file_change_pin_until: None,
+            fallback_file_change_pin_duration: Duration::from_secs(3),
+            runtime_locked_to_ws: false,
+            activity_locked_to_ws: false,
         }
     }
 }
@@ -85,55 +129,71 @@ impl StateParser {
         let payload_type = line.payload_type.as_deref()?;
 
         match payload_type {
-            "task_started" => self.transition(&session_id, SessionState::Thinking, None),
-            "user_message" => {
-                if self
-                    .trackers
-                    .get(&session_id)
-                    .map(|tracker| tracker.state == SessionState::Streaming)
-                    .unwrap_or(false)
-                {
-                    None
-                } else {
-                    self.transition(&session_id, SessionState::Thinking, None)
-                }
+            "task_started" | "user_message" | "reasoning" => {
+                self.apply_jsonl_running(&session_id, ActivityKind::Reasoning)
             }
-            "assistant_message_start" => {
-                debug!("[{session_id}] assistant_message_start");
-                None
-            }
-            "agent_message" => {
-                if self
-                    .trackers
-                    .get(&session_id)
-                    .map(|tracker| tracker.state == SessionState::AwaitingInput)
-                    .unwrap_or(false)
-                {
-                    None
-                } else {
-                    self.transition(&session_id, SessionState::Streaming, None)
-                }
-            }
-            "tool_call" => self.transition(&session_id, SessionState::Working, None),
+            "agent_message" => self.apply_jsonl_running(&session_id, ActivityKind::AgentMessage),
+            "tool_call" => self.apply_jsonl_running(
+                &session_id,
+                tool_name_to_activity(string_payload(&line.parsed, "tool").as_deref()),
+            ),
+            "web_search" => self.apply_jsonl_running(&session_id, ActivityKind::WebSearch),
+            "patch_apply_end" => self.apply_jsonl_running(&session_id, ActivityKind::FileChange),
             "token_count" => self.process_token_count(&session_id, &line.parsed),
-            "assistant_message_stop" => self.transition(&session_id, SessionState::Idle, None),
-            "task_complete" => self.transition(&session_id, SessionState::Idle, None),
+            "assistant_message_stop" | "task_complete" => self.update_tracker(
+                &session_id,
+                StateSource::Jsonl,
+                |tracker| {
+                    if tracker.runtime_locked_to_ws {
+                        return;
+                    }
+                    tracker.state = SessionState::Idle;
+                    tracker.activity_kind = ActivityKind::None;
+                    tracker.turn_state = Some(TurnState::Completed);
+                },
+            ),
             "awaiting_approval" => {
-                let reason = AwaitReason::ToolApproval {
-                    tool: string_payload(&line.parsed, "tool")
-                        .unwrap_or_else(|| "unknown".to_string()),
-                    command: string_payload(&line.parsed, "command"),
-                };
-                self.transition(&session_id, SessionState::AwaitingInput, Some(reason))
+                let tool = string_payload(&line.parsed, "tool")
+                    .unwrap_or_else(|| "unknown".to_string());
+                let command = string_payload(&line.parsed, "command");
+                let activity_kind = tool_name_to_activity(Some(tool.as_str()));
+                self.update_tracker(&session_id, StateSource::Jsonl, |tracker| {
+                    if tracker.runtime_locked_to_ws {
+                        return;
+                    }
+                    if !tracker.activity_locked_to_ws {
+                        tracker.activity_kind = activity_kind;
+                    }
+                    tracker.state = SessionState::WaitingForInput;
+                    tracker.turn_state = Some(TurnState::InProgress);
+                    tracker.await_reason = Some(AwaitReason::ToolApproval { tool, command });
+                })
             }
             "tool_approval" => {
-                if bool_payload(&line.parsed, "approved").unwrap_or(false) {
-                    self.transition(&session_id, SessionState::Thinking, None)
-                } else {
-                    self.transition(&session_id, SessionState::Idle, None)
-                }
+                let approved = bool_payload(&line.parsed, "approved").unwrap_or(false);
+                self.update_tracker(&session_id, StateSource::Jsonl, |tracker| {
+                    if tracker.runtime_locked_to_ws {
+                        return;
+                    }
+                    tracker.await_reason = None;
+                    if approved {
+                        tracker.state = SessionState::Running;
+                        if !tracker.activity_locked_to_ws {
+                            if tracker.activity_kind == ActivityKind::None {
+                                tracker.activity_kind = ActivityKind::CommandExecution;
+                            }
+                        }
+                        tracker.turn_state = Some(TurnState::InProgress);
+                    } else {
+                        tracker.state = SessionState::Idle;
+                        tracker.activity_kind = ActivityKind::None;
+                        tracker.turn_state = Some(TurnState::Interrupted);
+                    }
+                })
             }
-            "error" | "turn_error" | "stream_error" => Some(self.set_error(&session_id)),
+            "error" | "turn_error" | "stream_error" => {
+                Some(self.set_error(&session_id, StateSource::Jsonl))
+            }
             _ => None,
         }
     }
@@ -142,82 +202,269 @@ impl StateParser {
         let session_id = ws_session_id(&ws_event.params);
 
         match ws_event.method.as_str() {
-            "turn/start" => self.transition(&session_id, SessionState::Thinking, None),
-            "turn/stop" => self.transition(&session_id, SessionState::Idle, None),
-            "tool/approval/request" => {
-                let reason = AwaitReason::ToolApproval {
-                    tool: ws_event
-                        .params
-                        .get("toolName")
-                        .or_else(|| ws_event.params.get("tool"))
-                        .and_then(|value| value.as_str())
-                        .unwrap_or("unknown")
-                        .to_string(),
-                    command: ws_event
-                        .params
-                        .get("command")
-                        .and_then(|value| value.as_str())
-                        .map(ToOwned::to_owned),
-                };
-                self.transition(&session_id, SessionState::AwaitingInput, Some(reason))
+            "thread/status/changed" => {
+                let runtime_state = runtime_state_from_ws_status(
+                    ws_event.params.get("status").unwrap_or(&Value::Null),
+                );
+                self.update_tracker(&session_id, StateSource::AppServer, |tracker| {
+                    tracker.runtime_locked_to_ws = true;
+                    tracker.state = runtime_state.clone();
+                    if matches!(
+                        runtime_state,
+                        SessionState::Idle | SessionState::NotLoaded | SessionState::ReadyForReview
+                    ) {
+                        tracker.turn_state = None;
+                    }
+                })
+            }
+            "turn/started" | "turn/start" => self.update_tracker(
+                &session_id,
+                StateSource::AppServer,
+                |tracker| {
+                    tracker.runtime_locked_to_ws = true;
+                    tracker.state = SessionState::Running;
+                    tracker.turn_state = Some(TurnState::InProgress);
+                    if !tracker.activity_locked_to_ws
+                        && tracker.activity_kind == ActivityKind::None
+                    {
+                        tracker.activity_kind = ActivityKind::Reasoning;
+                    }
+                },
+            ),
+            "turn/completed" => {
+                let turn_state = ws_turn_state(&ws_event.params).unwrap_or(TurnState::Completed);
+                self.update_tracker(&session_id, StateSource::AppServer, |tracker| {
+                    tracker.runtime_locked_to_ws = true;
+                    tracker.turn_state = Some(turn_state.clone());
+                    tracker.await_reason = None;
+
+                    match turn_state {
+                        TurnState::Failed => {
+                            tracker.state = SessionState::Error;
+                            tracker.activity_kind = ActivityKind::None;
+                        }
+                        TurnState::Completed | TurnState::Interrupted => {
+                            tracker.state = SessionState::Idle;
+                            tracker.activity_kind = ActivityKind::None;
+                        }
+                        TurnState::InProgress => {
+                            tracker.state = SessionState::Running;
+                        }
+                    }
+                })
+            }
+            "turn/stop" => self.update_tracker(&session_id, StateSource::AppServer, |tracker| {
+                tracker.runtime_locked_to_ws = true;
+                tracker.state = SessionState::Idle;
+                tracker.activity_kind = ActivityKind::None;
+                tracker.turn_state = Some(TurnState::Completed);
+                tracker.await_reason = None;
+            }),
+            "item/started" | "item/completed" => {
+                let item_type = ws_item_type(&ws_event.params)?;
+                let item_status = ws_item_status(&ws_event.params);
+                self.update_tracker(&session_id, StateSource::AppServer, |tracker| {
+                    tracker.activity_locked_to_ws = true;
+
+                    if is_review_item(&item_type) {
+                        tracker.runtime_locked_to_ws = true;
+                        tracker.state = SessionState::ReadyForReview;
+                        tracker.activity_kind = ActivityKind::None;
+                        tracker.turn_state = Some(TurnState::Completed);
+                        tracker.await_reason = None;
+                        return;
+                    }
+
+                    let activity_kind = item_type_to_activity_kind(&item_type);
+                    if activity_kind == ActivityKind::None {
+                        return;
+                    }
+
+                    match item_status.as_deref() {
+                        Some("declined") => {
+                            tracker.runtime_locked_to_ws = true;
+                            tracker.state = SessionState::Idle;
+                            tracker.activity_kind = ActivityKind::None;
+                            tracker.turn_state = Some(TurnState::Interrupted);
+                            tracker.await_reason = None;
+                        }
+                        Some("failed") => {
+                            tracker.runtime_locked_to_ws = true;
+                            tracker.state = SessionState::Error;
+                            tracker.activity_kind = ActivityKind::None;
+                            tracker.turn_state = Some(TurnState::Failed);
+                            tracker.await_reason = None;
+                        }
+                        Some("completed") if ws_event.method == "item/completed" => {
+                            tracker.await_reason = None;
+                            if tracker.state == SessionState::WaitingForInput {
+                                tracker.state = SessionState::Running;
+                            }
+                            tracker.activity_kind = ActivityKind::None;
+                        }
+                        _ => {
+                            tracker.state = SessionState::Running;
+                            tracker.turn_state = Some(TurnState::InProgress);
+                            tracker.activity_kind = activity_kind;
+                        }
+                    }
+                })
+            }
+            "item/commandExecution/requestApproval" | "tool/approval/request" => {
+                let command = ws_first_string(
+                    &ws_event.params,
+                    &["command", "title", "message", "text"],
+                );
+                self.update_tracker(&session_id, StateSource::AppServer, |tracker| {
+                    tracker.runtime_locked_to_ws = true;
+                    tracker.activity_locked_to_ws = true;
+                    tracker.state = SessionState::WaitingForInput;
+                    tracker.activity_kind = ActivityKind::CommandExecution;
+                    tracker.turn_state = Some(TurnState::InProgress);
+                    tracker.await_reason = Some(AwaitReason::ToolApproval {
+                        tool: "command_execution".to_string(),
+                        command,
+                    });
+                })
+            }
+            "item/fileChange/requestApproval" => {
+                let command = ws_first_string(
+                    &ws_event.params,
+                    &["reason", "message", "text", "grantRoot"],
+                );
+                self.update_tracker(&session_id, StateSource::AppServer, |tracker| {
+                    tracker.runtime_locked_to_ws = true;
+                    tracker.activity_locked_to_ws = true;
+                    tracker.state = SessionState::WaitingForInput;
+                    tracker.activity_kind = ActivityKind::FileChange;
+                    tracker.turn_state = Some(TurnState::InProgress);
+                    tracker.await_reason = Some(AwaitReason::ToolApproval {
+                        tool: "file_change".to_string(),
+                        command,
+                    });
+                })
+            }
+            "item/tool/requestUserInput" | "item/requestUserInput" => {
+                let text = ws_first_string(
+                    &ws_event.params,
+                    &["prompt", "message", "text", "title"],
+                );
+                self.update_tracker(&session_id, StateSource::AppServer, |tracker| {
+                    tracker.runtime_locked_to_ws = true;
+                    tracker.state = SessionState::WaitingForInput;
+                    tracker.turn_state = Some(TurnState::InProgress);
+                    tracker.await_reason = Some(AwaitReason::Question { text });
+                })
             }
             _ => None,
         }
     }
 
-    pub fn set_error(&mut self, session_id: &str) -> SessionStateEvent {
-        let tracker = self.trackers.entry(session_id.to_string()).or_default();
-        tracker.error_since = Some(Instant::now());
-        tracker.state = SessionState::Error;
-
-        SessionStateEvent {
-            session_id: session_id.to_string(),
-            state: SessionState::Error,
-            timestamp: Utc::now(),
-            await_reason: None,
-        }
+    pub fn set_error(&mut self, session_id: &str, source: StateSource) -> SessionStateEvent {
+        self.update_tracker(session_id, source, |tracker| {
+            if source == StateSource::AppServer {
+                tracker.runtime_locked_to_ws = true;
+            }
+            tracker.state = SessionState::Error;
+            tracker.activity_kind = ActivityKind::None;
+            tracker.turn_state = Some(TurnState::Failed);
+            tracker.await_reason = None;
+        })
+        .expect("error transition should always emit an event")
     }
 
     pub fn check_timeouts(&mut self) -> Vec<SessionStateEvent> {
         let now = Instant::now();
+        let mut session_ids = Vec::new();
+        let mut error_session_ids = Vec::new();
+
+        for (session_id, tracker) in &self.trackers {
+            if tracker.state == SessionState::Running
+                && !tracker.runtime_locked_to_ws
+                && tracker.activity_kind == ActivityKind::AgentMessage
+            {
+                if let Some(last_token_time) = tracker.last_token_time {
+                    if now.duration_since(last_token_time) >= tracker.running_timeout {
+                        session_ids.push(session_id.clone());
+                    }
+                }
+            }
+
+            if tracker.state == SessionState::Error {
+                if let Some(error_since) = tracker.error_since {
+                    if now.duration_since(error_since) >= tracker.error_timeout {
+                        error_session_ids.push(session_id.clone());
+                    }
+                }
+            }
+        }
+
         let mut events = Vec::new();
 
-        for (session_id, tracker) in self.trackers.iter_mut() {
-            match tracker.state {
-                SessionState::Streaming => {
-                    if let Some(last_token_time) = tracker.last_token_time {
-                        if now.duration_since(last_token_time) >= tracker.streaming_timeout {
-                            info!("[{session_id}] streaming timeout -> Idle");
-                            tracker.state = SessionState::Idle;
-                            events.push(SessionStateEvent {
-                                session_id: session_id.clone(),
-                                state: SessionState::Idle,
-                                timestamp: Utc::now(),
-                                await_reason: None,
-                            });
-                        }
+        for session_id in session_ids {
+            if let Some(event) = self.update_tracker(
+                &session_id,
+                StateSource::Jsonl,
+                |tracker| {
+                    tracker.state = SessionState::Idle;
+                    tracker.activity_kind = ActivityKind::None;
+                    tracker.turn_state = Some(TurnState::Completed);
+                },
+            ) {
+                info!("[{session_id}] running timeout -> idle");
+                events.push(event);
+            }
+        }
+
+        for session_id in error_session_ids {
+            let source = self
+                .trackers
+                .get(&session_id)
+                .map(|tracker| {
+                    if tracker.runtime_locked_to_ws {
+                        StateSource::AppServer
+                    } else {
+                        StateSource::Jsonl
                     }
-                }
-                SessionState::Error => {
-                    if let Some(error_since) = tracker.error_since {
-                        if now.duration_since(error_since) >= tracker.error_timeout {
-                            info!("[{session_id}] error timeout -> Idle");
-                            tracker.state = SessionState::Idle;
-                            tracker.error_since = None;
-                            events.push(SessionStateEvent {
-                                session_id: session_id.clone(),
-                                state: SessionState::Idle,
-                                timestamp: Utc::now(),
-                                await_reason: None,
-                            });
-                        }
-                    }
-                }
-                _ => {}
+                })
+                .unwrap_or(StateSource::Jsonl);
+            if let Some(event) = self.update_tracker(
+                &session_id,
+                source,
+                |tracker| {
+                    tracker.state = SessionState::Idle;
+                    tracker.activity_kind = ActivityKind::None;
+                    tracker.turn_state = None;
+                },
+            ) {
+                info!("[{session_id}] error timeout -> idle");
+                events.push(event);
             }
         }
 
         events
+    }
+
+    fn apply_jsonl_running(
+        &mut self,
+        session_id: &str,
+        activity_kind: ActivityKind,
+    ) -> Option<SessionStateEvent> {
+        self.update_tracker(session_id, StateSource::Jsonl, |tracker| {
+            if !tracker.runtime_locked_to_ws {
+                tracker.state = SessionState::Running;
+                tracker.turn_state = Some(TurnState::InProgress);
+            }
+            if !tracker.activity_locked_to_ws
+                && fallback_activity_can_override(tracker, activity_kind.clone())
+            {
+                tracker.activity_kind = activity_kind;
+                if tracker.activity_kind == ActivityKind::FileChange {
+                    tracker.fallback_file_change_pin_until =
+                        Some(Instant::now() + tracker.fallback_file_change_pin_duration);
+                }
+            }
+        })
     }
 
     fn process_token_count(
@@ -244,45 +491,171 @@ impl StateParser {
         tracker.last_output_tokens = output_tokens;
         tracker.last_token_time = Some(Instant::now());
 
-        if tracker.state == SessionState::AwaitingInput {
-            return None;
-        }
+        self.update_tracker(session_id, StateSource::Jsonl, |tracker| {
+            if matches!(
+                tracker.state,
+                SessionState::WaitingForInput | SessionState::ReadyForReview | SessionState::Error
+            ) {
+                return;
+            }
 
-        if tracker.state == SessionState::Working {
-            return None;
-        }
+            if !tracker.runtime_locked_to_ws {
+                tracker.state = SessionState::Running;
+                tracker.turn_state = Some(TurnState::InProgress);
+            }
 
-        self.transition(session_id, SessionState::Streaming, None)
+            if !tracker.activity_locked_to_ws
+                && fallback_activity_can_override(tracker, ActivityKind::AgentMessage)
+            {
+                tracker.activity_kind = ActivityKind::AgentMessage;
+            }
+        })
     }
 
-    fn transition(
+    fn update_tracker<F>(
         &mut self,
         session_id: &str,
-        state: SessionState,
-        await_reason: Option<AwaitReason>,
-    ) -> Option<SessionStateEvent> {
+        source: StateSource,
+        update: F,
+    ) -> Option<SessionStateEvent>
+    where
+        F: FnOnce(&mut SessionTracker),
+    {
         let tracker = self.trackers.entry(session_id.to_string()).or_default();
+        let previous = (
+            tracker.state.clone(),
+            tracker.activity_kind.clone(),
+            tracker.turn_state.clone(),
+            tracker.await_reason.clone(),
+        );
 
-        if tracker.state == state {
+        update(tracker);
+        normalize_tracker(tracker);
+
+        let current = (
+            tracker.state.clone(),
+            tracker.activity_kind.clone(),
+            tracker.turn_state.clone(),
+            tracker.await_reason.clone(),
+        );
+
+        if previous == current {
             return None;
         }
 
-        info!("[{session_id}] {:?} -> {:?}", tracker.state, state);
-        tracker.state = state.clone();
-
-        if state == SessionState::Streaming {
-            tracker.last_token_time = Some(Instant::now());
-        }
-        if state != SessionState::Error {
-            tracker.error_since = None;
-        }
+        info!(
+            "[{session_id}] state={:?} activity={:?} turn={:?} source={:?}",
+            tracker.state, tracker.activity_kind, tracker.turn_state, source
+        );
 
         Some(SessionStateEvent {
             session_id: session_id.to_string(),
-            state,
+            state: tracker.state.clone(),
+            activity_kind: tracker.activity_kind.clone(),
+            turn_state: tracker.turn_state.clone(),
+            source,
             timestamp: Utc::now(),
-            await_reason,
+            await_reason: tracker.await_reason.clone(),
         })
+    }
+}
+
+fn normalize_tracker(tracker: &mut SessionTracker) {
+    if let Some(pin_until) = tracker.fallback_file_change_pin_until {
+        if Instant::now() >= pin_until {
+            tracker.fallback_file_change_pin_until = None;
+        }
+    }
+
+    match tracker.state {
+        SessionState::NotLoaded | SessionState::Idle | SessionState::ReadyForReview | SessionState::Error => {
+            tracker.activity_kind = ActivityKind::None;
+            tracker.fallback_file_change_pin_until = None;
+        }
+        SessionState::Running | SessionState::WaitingForInput => {}
+    }
+
+    if tracker.state != SessionState::WaitingForInput {
+        tracker.await_reason = None;
+    }
+
+    if tracker.state == SessionState::Error {
+        tracker.error_since.get_or_insert_with(Instant::now);
+    } else {
+        tracker.error_since = None;
+    }
+}
+
+fn fallback_activity_can_override(tracker: &SessionTracker, next: ActivityKind) -> bool {
+    if tracker.activity_kind != ActivityKind::FileChange {
+        return true;
+    }
+
+    let pinned = tracker
+        .fallback_file_change_pin_until
+        .map(|pin_until| Instant::now() < pin_until)
+        .unwrap_or(false);
+
+    if !pinned {
+        return true;
+    }
+
+    matches!(next, ActivityKind::FileChange)
+}
+
+fn runtime_state_from_ws_status(status: &Value) -> SessionState {
+    match status.get("type").and_then(|value| value.as_str()) {
+        Some("notLoaded") | Some("not_loaded") => SessionState::NotLoaded,
+        Some("idle") => SessionState::Idle,
+        Some("systemError") | Some("system_error") => SessionState::Error,
+        Some("active") => {
+            if has_string_value_in_array(status.get("activeFlags"), "waitingOnApproval")
+                || has_string_value_in_array(status.get("activeFlags"), "waitingOnUserInput")
+            {
+                SessionState::WaitingForInput
+            } else {
+                SessionState::Running
+            }
+        }
+        _ => SessionState::Running,
+    }
+}
+
+fn has_string_value_in_array(value: Option<&Value>, needle: &str) -> bool {
+    value
+        .and_then(|value| value.as_array())
+        .map(|values| values.iter().any(|value| value.as_str() == Some(needle)))
+        .unwrap_or(false)
+}
+
+fn is_review_item(item_type: &str) -> bool {
+    matches!(item_type, "enteredReviewMode" | "exitedReviewMode")
+}
+
+fn item_type_to_activity_kind(item_type: &str) -> ActivityKind {
+    match item_type {
+        "reasoning" => ActivityKind::Reasoning,
+        "commandExecution" | "toolCall" | "mcpToolCall" | "dynamicToolCall" | "customToolCall" => {
+            ActivityKind::CommandExecution
+        }
+        "fileChange" => ActivityKind::FileChange,
+        "webSearch" => ActivityKind::WebSearch,
+        "agentMessage" => ActivityKind::AgentMessage,
+        _ => ActivityKind::None,
+    }
+}
+
+fn tool_name_to_activity(tool: Option<&str>) -> ActivityKind {
+    let Some(tool) = tool else {
+        return ActivityKind::CommandExecution;
+    };
+
+    if tool.contains("apply_patch") || tool.contains("patch") {
+        ActivityKind::FileChange
+    } else if tool.contains("web_search") {
+        ActivityKind::WebSearch
+    } else {
+        ActivityKind::CommandExecution
     }
 }
 
@@ -302,25 +675,79 @@ fn bool_payload(parsed: &Value, key: &str) -> Option<bool> {
 }
 
 fn ws_session_id(params: &Value) -> String {
-    for key in [
-        "session_id",
-        "sessionId",
-        "thread_id",
-        "threadId",
-        "turn_id",
-        "turnId",
-    ] {
+    for key in ["session_id", "sessionId", "thread_id", "threadId", "turn_id", "turnId"] {
         if let Some(value) = params.get(key).and_then(|value| value.as_str()) {
             return value.to_string();
         }
     }
 
+    if let Some(value) = params
+        .get("turn")
+        .and_then(|turn| turn.get("threadId").or_else(|| turn.get("thread_id")))
+        .and_then(|value| value.as_str())
+    {
+        return value.to_string();
+    }
+
     "ws".to_string()
+}
+
+fn ws_item_type(params: &Value) -> Option<String> {
+    params
+        .get("item")
+        .and_then(|item| item.get("type"))
+        .or_else(|| params.get("type"))
+        .and_then(|value| value.as_str())
+        .map(ToOwned::to_owned)
+}
+
+fn ws_item_status(params: &Value) -> Option<String> {
+    params
+        .get("item")
+        .and_then(|item| item.get("status"))
+        .or_else(|| params.get("status"))
+        .and_then(|value| value.as_str())
+        .map(ToOwned::to_owned)
+}
+
+fn ws_turn_state(params: &Value) -> Option<TurnState> {
+    let status = params
+        .get("turn")
+        .and_then(|turn| turn.get("status"))
+        .or_else(|| params.get("status"))
+        .and_then(|value| value.as_str())?;
+
+    match status {
+        "inProgress" | "in_progress" => Some(TurnState::InProgress),
+        "completed" => Some(TurnState::Completed),
+        "interrupted" => Some(TurnState::Interrupted),
+        "failed" => Some(TurnState::Failed),
+        _ => None,
+    }
+}
+
+fn ws_first_string(params: &Value, keys: &[&str]) -> Option<String> {
+    for key in keys {
+        if let Some(value) = params.get(key).and_then(|value| value.as_str()) {
+            return Some(value.to_string());
+        }
+        if let Some(value) = params
+            .get("item")
+            .and_then(|item| item.get(key))
+            .and_then(|value| value.as_str())
+        {
+            return Some(value.to_string());
+        }
+    }
+
+    None
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{AwaitReason, SessionState, StateParser};
+    use super::{
+        ActivityKind, AwaitReason, SessionState, StateParser, StateSource, TurnState,
+    };
     use crate::watcher::jsonl_watcher::RawJsonlLine;
     use crate::watcher::ws_client::WsStateEvent;
     use serde_json::{json, Value};
@@ -356,145 +783,63 @@ mod tests {
         }))
     }
 
-    fn real_codex_token_count(output_tokens: u64) -> RawJsonlLine {
-        jsonl(json!({
-            "type": "token_count",
-            "info": {
-                "total_token_usage": {
-                    "input_tokens": 100,
-                    "cached_input_tokens": 50,
-                    "output_tokens": output_tokens,
-                    "reasoning_output_tokens": 0,
-                    "total_tokens": 100 + output_tokens,
-                }
-            }
-        }))
-    }
-
     fn task_started() -> RawJsonlLine {
         jsonl(json!({ "type": "task_started" }))
     }
 
-    fn task_complete() -> RawJsonlLine {
-        jsonl(json!({ "type": "task_complete" }))
-    }
-
-    fn agent_message() -> RawJsonlLine {
-        jsonl(json!({ "type": "agent_message", "phase": "commentary" }))
-    }
-
-    fn tool_call() -> RawJsonlLine {
-        jsonl(json!({ "type": "tool_call", "tool": "exec_command" }))
-    }
-
     #[test]
-    fn user_message_moves_to_thinking() {
+    fn user_message_moves_to_running_reasoning() {
         let mut parser = StateParser::new();
         let event = parser
             .process_jsonl(&jsonl(json!({ "type": "user_message" })))
             .unwrap();
 
-        assert_eq!(event.state, SessionState::Thinking);
+        assert_eq!(event.state, SessionState::Running);
+        assert_eq!(event.activity_kind, ActivityKind::Reasoning);
+        assert_eq!(event.turn_state, Some(TurnState::InProgress));
+        assert_eq!(event.source, StateSource::Jsonl);
     }
 
     #[test]
-    fn task_started_moves_to_thinking() {
+    fn token_count_promotes_reasoning_to_agent_message() {
         let mut parser = StateParser::new();
-        let event = parser.process_jsonl(&task_started()).unwrap();
-
-        assert_eq!(event.state, SessionState::Thinking);
-    }
-
-    #[test]
-    fn output_token_increase_moves_to_streaming() {
-        let mut parser = StateParser::new();
-        parser.process_jsonl(&jsonl(json!({ "type": "user_message" })));
+        parser.process_jsonl(&task_started()).unwrap();
 
         let event = parser.process_jsonl(&token_count(10)).unwrap();
 
-        assert_eq!(event.state, SessionState::Streaming);
+        assert_eq!(event.state, SessionState::Running);
+        assert_eq!(event.activity_kind, ActivityKind::AgentMessage);
     }
 
     #[test]
-    fn nested_output_token_increase_moves_to_streaming() {
+    fn apply_patch_maps_to_file_change_activity() {
         let mut parser = StateParser::new();
-        parser.process_jsonl(&jsonl(json!({ "type": "user_message" })));
-
-        let event = parser.process_jsonl(&real_codex_token_count(10)).unwrap();
-
-        assert_eq!(event.state, SessionState::Streaming);
-    }
-
-    #[test]
-    fn duplicate_user_message_does_not_regress_streaming_to_thinking() {
-        let mut parser = StateParser::new();
-        parser.process_jsonl(&jsonl(json!({ "type": "user_message" })));
-        parser.process_jsonl(&token_count(10)).unwrap();
-
-        let event = parser.process_jsonl(&jsonl(json!({ "type": "user_message" })));
-
-        assert!(event.is_none());
-        assert_eq!(
-            parser.trackers.get("sess-1").unwrap().state,
-            SessionState::Streaming
-        );
-    }
-
-    #[test]
-    fn assistant_stop_moves_to_idle() {
-        let mut parser = StateParser::new();
-        parser.process_jsonl(&jsonl(json!({ "type": "user_message" })));
-        parser.process_jsonl(&token_count(10));
-
         let event = parser
-            .process_jsonl(&jsonl(json!({ "type": "assistant_message_stop" })))
+            .process_jsonl(&jsonl(json!({
+                "type": "tool_call",
+                "tool": "apply_patch"
+            })))
             .unwrap();
 
-        assert_eq!(event.state, SessionState::Idle);
+        assert_eq!(event.state, SessionState::Running);
+        assert_eq!(event.activity_kind, ActivityKind::FileChange);
     }
 
     #[test]
-    fn task_complete_moves_to_idle() {
+    fn file_change_pin_blocks_reasoning_regression_temporarily() {
         let mut parser = StateParser::new();
-        parser.process_jsonl(&task_started());
+        parser
+            .process_jsonl(&jsonl(json!({
+                "type": "tool_call",
+                "tool": "apply_patch"
+            })))
+            .unwrap();
 
-        let event = parser.process_jsonl(&task_complete()).unwrap();
-
-        assert_eq!(event.state, SessionState::Idle);
-    }
-
-    #[test]
-    fn agent_message_moves_to_streaming() {
-        let mut parser = StateParser::new();
-        parser.process_jsonl(&task_started());
-
-        let event = parser.process_jsonl(&agent_message()).unwrap();
-
-        assert_eq!(event.state, SessionState::Streaming);
-    }
-
-    #[test]
-    fn tool_call_moves_to_working() {
-        let mut parser = StateParser::new();
-        parser.process_jsonl(&task_started());
-
-        let event = parser.process_jsonl(&tool_call()).unwrap();
-
-        assert_eq!(event.state, SessionState::Working);
-    }
-
-    #[test]
-    fn token_count_during_tool_call_does_not_move_to_streaming() {
-        let mut parser = StateParser::new();
-        parser.process_jsonl(&task_started());
-        parser.process_jsonl(&tool_call()).unwrap();
-
-        let event = parser.process_jsonl(&token_count(10));
-
-        assert!(event.is_none());
+        let reasoning = parser.process_jsonl(&jsonl(json!({ "type": "reasoning" })));
+        assert!(reasoning.is_none());
         assert_eq!(
-            parser.trackers.get("sess-1").unwrap().state,
-            SessionState::Working
+            parser.trackers.get("sess-1").unwrap().activity_kind,
+            ActivityKind::FileChange
         );
     }
 
@@ -509,7 +854,8 @@ mod tests {
             })))
             .unwrap();
 
-        assert_eq!(event.state, SessionState::AwaitingInput);
+        assert_eq!(event.state, SessionState::WaitingForInput);
+        assert_eq!(event.activity_kind, ActivityKind::CommandExecution);
         assert_eq!(
             event.await_reason,
             Some(AwaitReason::ToolApproval {
@@ -520,63 +866,204 @@ mod tests {
     }
 
     #[test]
-    fn approval_result_moves_to_thinking_or_idle() {
+    fn approval_result_moves_to_running_or_idle() {
         let mut parser = StateParser::new();
-        parser.process_jsonl(&jsonl(json!({ "type": "awaiting_approval" })));
+        parser.process_jsonl(&jsonl(json!({
+            "type": "awaiting_approval",
+            "tool": "apply_patch"
+        })));
 
         let approved = parser
             .process_jsonl(&jsonl(json!({ "type": "tool_approval", "approved": true })))
             .unwrap();
-        assert_eq!(approved.state, SessionState::Thinking);
+        assert_eq!(approved.state, SessionState::Running);
+        assert_eq!(approved.activity_kind, ActivityKind::FileChange);
 
-        parser.process_jsonl(&jsonl(json!({ "type": "awaiting_approval" })));
+        parser.process_jsonl(&jsonl(json!({
+            "type": "awaiting_approval",
+            "tool": "shell"
+        })));
         let denied = parser
             .process_jsonl(&jsonl(
                 json!({ "type": "tool_approval", "approved": false }),
             ))
             .unwrap();
         assert_eq!(denied.state, SessionState::Idle);
+        assert_eq!(denied.turn_state, Some(TurnState::Interrupted));
     }
 
     #[test]
-    fn error_event_moves_to_error() {
+    fn token_count_after_approval_promotes_to_agent_message() {
         let mut parser = StateParser::new();
+        parser.process_jsonl(&jsonl(json!({
+            "type": "awaiting_approval",
+            "tool": "shell",
+            "command": "echo app-smoke"
+        })));
+        parser
+            .process_jsonl(&jsonl(json!({
+                "type": "tool_approval",
+                "approved": true
+            })))
+            .unwrap();
+
+        let event = parser.process_jsonl(&token_count(30)).unwrap();
+
+        assert_eq!(event.state, SessionState::Running);
+        assert_eq!(event.activity_kind, ActivityKind::AgentMessage);
+    }
+
+    #[test]
+    fn websocket_thread_status_waiting_takes_priority() {
+        let mut parser = StateParser::new();
+        let event = parser
+            .process_ws(&WsStateEvent {
+                method: "thread/status/changed".to_string(),
+                params: json!({
+                    "threadId": "thread-1",
+                    "status": {
+                        "type": "active",
+                        "activeFlags": ["waitingOnApproval"]
+                    }
+                }),
+            })
+            .unwrap();
+
+        assert_eq!(event.state, SessionState::WaitingForInput);
+        assert_eq!(event.activity_kind, ActivityKind::None);
+        assert_eq!(event.source, StateSource::AppServer);
+    }
+
+    #[test]
+    fn websocket_review_state_is_supported() {
+        let mut parser = StateParser::new();
+        let event = parser
+            .process_ws(&WsStateEvent {
+                method: "item/started".to_string(),
+                params: json!({
+                    "threadId": "thread-1",
+                    "item": {
+                        "type": "enteredReviewMode"
+                    }
+                }),
+            })
+            .unwrap();
+
+        assert_eq!(event.state, SessionState::ReadyForReview);
+    }
+
+    #[test]
+    fn websocket_waiting_on_user_input_flag_is_supported() {
+        let mut parser = StateParser::new();
+        let event = parser
+            .process_ws(&WsStateEvent {
+                method: "thread/status/changed".to_string(),
+                params: json!({
+                    "threadId": "thread-1",
+                    "status": {
+                        "type": "active",
+                        "activeFlags": ["waitingOnUserInput"]
+                    }
+                }),
+            })
+            .unwrap();
+
+        assert_eq!(event.state, SessionState::WaitingForInput);
+    }
+
+    #[test]
+    fn websocket_tool_request_user_input_is_supported() {
+        let mut parser = StateParser::new();
+        let event = parser
+            .process_ws(&WsStateEvent {
+                method: "item/tool/requestUserInput".to_string(),
+                params: json!({
+                    "threadId": "thread-1",
+                    "item": {
+                        "prompt": "Need more detail"
+                    }
+                }),
+            })
+            .unwrap();
+
+        assert_eq!(event.state, SessionState::WaitingForInput);
+        assert_eq!(
+            event.await_reason,
+            Some(AwaitReason::Question {
+                text: Some("Need more detail".to_string()),
+            })
+        );
+    }
+
+    #[test]
+    fn websocket_item_started_updates_activity() {
+        let mut parser = StateParser::new();
+        parser
+            .process_ws(&WsStateEvent {
+                method: "turn/started".to_string(),
+                params: json!({ "threadId": "thread-1" }),
+            })
+            .unwrap();
 
         let event = parser
-            .process_jsonl(&jsonl(json!({ "type": "turn_error" })))
+            .process_ws(&WsStateEvent {
+                method: "item/started".to_string(),
+                params: json!({
+                    "threadId": "thread-1",
+                    "item": {
+                        "type": "fileChange",
+                        "status": "inProgress"
+                    }
+                }),
+            })
+            .unwrap();
+
+        assert_eq!(event.state, SessionState::Running);
+        assert_eq!(event.activity_kind, ActivityKind::FileChange);
+    }
+
+    #[test]
+    fn websocket_turn_failed_moves_to_error() {
+        let mut parser = StateParser::new();
+        let event = parser
+            .process_ws(&WsStateEvent {
+                method: "turn/completed".to_string(),
+                params: json!({
+                    "threadId": "thread-1",
+                    "status": "failed"
+                }),
+            })
             .unwrap();
 
         assert_eq!(event.state, SessionState::Error);
+        assert_eq!(event.turn_state, Some(TurnState::Failed));
     }
 
     #[test]
-    fn websocket_turn_events_drive_state() {
+    fn app_server_runtime_beats_jsonl_runtime_fallback() {
         let mut parser = StateParser::new();
-
-        let start = parser
+        parser
             .process_ws(&WsStateEvent {
-                method: "turn/start".to_string(),
-                params: json!({ "turn_id": "turn-1" }),
+                method: "thread/status/changed".to_string(),
+                params: json!({
+                    "threadId": "sess-1",
+                    "status": { "type": "idle" }
+                }),
             })
             .unwrap();
-        assert_eq!(start.state, SessionState::Thinking);
 
-        let stop = parser
-            .process_ws(&WsStateEvent {
-                method: "turn/stop".to_string(),
-                params: json!({ "turn_id": "turn-1" }),
-            })
-            .unwrap();
-        assert_eq!(stop.state, SessionState::Idle);
+        let event = parser.process_jsonl(&task_started());
+        assert!(event.is_none());
+        assert_eq!(parser.trackers.get("sess-1").unwrap().state, SessionState::Idle);
     }
 
     #[test]
-    fn streaming_timeout_returns_to_idle() {
+    fn running_timeout_returns_to_idle() {
         let mut parser = StateParser::new();
-        parser.process_jsonl(&jsonl(json!({ "type": "user_message" })));
-        parser.process_jsonl(&token_count(10));
+        parser.process_jsonl(&task_started()).unwrap();
+        parser.process_jsonl(&token_count(10)).unwrap();
 
-        parser.trackers.get_mut("sess-1").unwrap().streaming_timeout = Duration::from_millis(1);
+        parser.trackers.get_mut("sess-1").unwrap().running_timeout = Duration::from_millis(1);
 
         thread::sleep(std::time::Duration::from_millis(5));
         let events = parser.check_timeouts();
@@ -588,7 +1075,7 @@ mod tests {
     #[test]
     fn error_timeout_returns_to_idle() {
         let mut parser = StateParser::new();
-        parser.set_error("sess-1");
+        parser.set_error("sess-1", StateSource::Jsonl);
         parser.trackers.get_mut("sess-1").unwrap().error_timeout = Duration::from_millis(1);
 
         thread::sleep(std::time::Duration::from_millis(5));

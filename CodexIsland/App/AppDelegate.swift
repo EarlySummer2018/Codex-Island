@@ -304,9 +304,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func setupDebugObservers() {
         #if DEBUG
-        EventBus.shared.$sessionState
-            .sink { state in
-                print("[EventBus] state -> \(state.rawValue)")
+        Publishers.CombineLatest(EventBus.shared.$sessionState, EventBus.shared.$activityKind)
+            .sink { state, activity in
+                print("[EventBus] runtime=\(state.rawValue) activity=\(activity.rawValue)")
             }
             .store(in: &cancellables)
 

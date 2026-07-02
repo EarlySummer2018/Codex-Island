@@ -83,8 +83,13 @@ def wait_for_log(lines: list[str], output: "queue.Queue[str]", predicate, label:
     raise AssertionError(f"timeout waiting for {label}\n--- log tail ---\n{tail}")
 
 
-def count_state(lines: list[str], state: str) -> int:
-    needle = f"[EventBus] state -> {state}"
+def count_runtime(lines: list[str], state: str) -> int:
+    needle = f"[EventBus] runtime={state} "
+    return sum(1 for line in lines if needle in line)
+
+
+def count_runtime_activity(lines: list[str], state: str, activity: str) -> int:
+    needle = f"[EventBus] runtime={state} activity={activity}"
     return sum(1 for line in lines if needle in line)
 
 
@@ -177,7 +182,12 @@ def main() -> int:
 
             append_jsonl(rollout, {"type": "session_init", "payload": {"session_id": "app-smoke-session", "model": "test"}})
             append_jsonl(rollout, {"type": "event_msg", "payload": {"type": "user_message"}})
-            wait_for_log(lines, output, lambda seen: count_state(seen, "thinking") >= 1, "thinking")
+            wait_for_log(
+                lines,
+                output,
+                lambda seen: count_runtime_activity(seen, "running", "reasoning") >= 1,
+                "running reasoning",
+            )
 
             append_jsonl(
                 rollout,
@@ -189,20 +199,26 @@ def main() -> int:
             wait_for_log(
                 lines,
                 output,
-                lambda seen: count_state(seen, "streaming") >= 1 and token_line_seen(seen, 120, 40, 12),
-                "streaming and first token snapshot",
+                lambda seen: count_runtime_activity(seen, "running", "agent_message") >= 1
+                and token_line_seen(seen, 120, 40, 12),
+                "running reply and first token snapshot",
             )
-            idle_count_before_stream_timeout = count_state(lines, "idle")
+            idle_count_before_stream_timeout = count_runtime(lines, "idle")
             wait_for_log(
                 lines,
                 output,
-                lambda seen: count_state(seen, "idle") > idle_count_before_stream_timeout,
+                lambda seen: count_runtime(seen, "idle") > idle_count_before_stream_timeout,
                 "stream timeout to idle",
                 timeout=6.0,
             )
 
             append_jsonl(rollout, {"type": "event_msg", "payload": {"type": "user_message"}})
-            wait_for_log(lines, output, lambda seen: count_state(seen, "thinking") >= 2, "second thinking")
+            wait_for_log(
+                lines,
+                output,
+                lambda seen: count_runtime_activity(seen, "running", "reasoning") >= 2,
+                "second running reasoning",
+            )
             append_jsonl(
                 rollout,
                 {
@@ -214,10 +230,20 @@ def main() -> int:
                     },
                 },
             )
-            wait_for_log(lines, output, lambda seen: count_state(seen, "awaiting_input") >= 1, "awaiting input")
+            wait_for_log(
+                lines,
+                output,
+                lambda seen: count_runtime(seen, "waiting_for_input") >= 1,
+                "waiting for input",
+            )
 
             append_jsonl(rollout, {"type": "event_msg", "payload": {"type": "tool_approval", "approved": True}})
-            wait_for_log(lines, output, lambda seen: count_state(seen, "thinking") >= 3, "approval returns to thinking")
+            wait_for_log(
+                lines,
+                output,
+                lambda seen: count_runtime(seen, "running") >= 3,
+                "approval returns to running",
+            )
 
             append_jsonl(
                 rollout,
@@ -229,16 +255,17 @@ def main() -> int:
             wait_for_log(
                 lines,
                 output,
-                lambda seen: count_state(seen, "streaming") >= 2 and token_line_seen(seen, 220, 120, 30),
-                "second streaming and token snapshot",
+                lambda seen: count_runtime_activity(seen, "running", "agent_message") >= 2
+                and token_line_seen(seen, 220, 120, 30),
+                "second running reply and token snapshot",
             )
 
             append_jsonl(rollout, {"type": "event_msg", "payload": {"type": "assistant_message_stop"}})
-            wait_for_log(lines, output, lambda seen: count_state(seen, "idle") >= 2, "assistant stop to idle")
+            wait_for_log(lines, output, lambda seen: count_runtime(seen, "idle") >= 2, "assistant stop to idle")
 
             append_jsonl(rollout, {"type": "event_msg", "payload": {"type": "turn_error", "message": "private text"}})
-            wait_for_log(lines, output, lambda seen: count_state(seen, "error") >= 1, "error")
-            wait_for_log(lines, output, lambda seen: count_state(seen, "idle") >= 3, "error timeout to idle", timeout=5.0)
+            wait_for_log(lines, output, lambda seen: count_runtime(seen, "error") >= 1, "error")
+            wait_for_log(lines, output, lambda seen: count_runtime(seen, "idle") >= 3, "error timeout to idle", timeout=5.0)
 
             append_jsonl(
                 rollout,
@@ -251,10 +278,15 @@ def main() -> int:
                     },
                 },
             )
-            wait_for_log(lines, output, lambda seen: count_state(seen, "awaiting_input") >= 2, "second awaiting input")
+            wait_for_log(
+                lines,
+                output,
+                lambda seen: count_runtime(seen, "waiting_for_input") >= 2,
+                "second waiting for input",
+            )
 
             append_jsonl(rollout, {"type": "event_msg", "payload": {"type": "tool_approval", "approved": False}})
-            wait_for_log(lines, output, lambda seen: count_state(seen, "idle") >= 4, "denied approval to idle")
+            wait_for_log(lines, output, lambda seen: count_runtime(seen, "idle") >= 4, "denied approval to idle")
 
             subprocess.run(["osascript", "-e", 'tell application "CodexIsland" to quit'], check=False)
             try:
@@ -270,12 +302,11 @@ def main() -> int:
             print("App runtime smoke test passed")
             print(f"Window bounds: {bounds}")
             print(
-                "States: "
-                f"thinking={count_state(lines, 'thinking')}, "
-                f"streaming={count_state(lines, 'streaming')}, "
-                f"awaiting_input={count_state(lines, 'awaiting_input')}, "
-                f"error={count_state(lines, 'error')}, "
-                f"idle={count_state(lines, 'idle')}"
+                "Runtime states: "
+                f"running={count_runtime(lines, 'running')}, "
+                f"waiting_for_input={count_runtime(lines, 'waiting_for_input')}, "
+                f"error={count_runtime(lines, 'error')}, "
+                f"idle={count_runtime(lines, 'idle')}"
             )
             print("Tokens: IN:120 CACHE:40 OUT:12; IN:220 CACHE:120 OUT:30")
             return 0

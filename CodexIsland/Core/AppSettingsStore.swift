@@ -43,12 +43,17 @@ enum AppTextKey {
     case restartToUpdate
     case resetCapsulePosition
     case quit
+    case notLoaded
     case idle
-    case thinking
-    case working
-    case streaming
-    case awaitingInput
+    case running
+    case waitingForInput
+    case readyForReview
     case error
+    case reasoning
+    case commandExecution
+    case fileChange
+    case webSearch
+    case agentMessage
     case input
     case cached
     case uncached
@@ -138,12 +143,17 @@ final class AppSettingsStore: ObservableObject {
         case .restartToUpdate: return "重启以更新"
         case .resetCapsulePosition: return "重置胶囊位置"
         case .quit: return "退出"
+        case .notLoaded: return "空闲"
         case .idle: return "空闲"
-        case .thinking: return "思考中"
-        case .working: return "处理中"
-        case .streaming: return "回复中"
-        case .awaitingInput: return "等待回复"
+        case .running: return "运行中"
+        case .waitingForInput: return "等待输入"
+        case .readyForReview: return "可供审阅"
         case .error: return "错误"
+        case .reasoning: return "思考"
+        case .commandExecution: return "运行命令"
+        case .fileChange: return "编辑文件"
+        case .webSearch: return "网页检索"
+        case .agentMessage: return "生成回复"
         case .input: return "输入"
         case .cached: return "缓存"
         case .uncached: return "未缓存"
@@ -177,12 +187,17 @@ final class AppSettingsStore: ObservableObject {
         case .restartToUpdate: return "Restart to Update"
         case .resetCapsulePosition: return "Reset Capsule Position"
         case .quit: return "Quit"
+        case .notLoaded: return "Idle"
         case .idle: return "Idle"
-        case .thinking: return "Thinking"
-        case .working: return "Working"
-        case .streaming: return "Replying"
-        case .awaitingInput: return "Awaiting Input"
+        case .running: return "Running"
+        case .waitingForInput: return "Waiting for Input"
+        case .readyForReview: return "Ready for Review"
         case .error: return "Error"
+        case .reasoning: return "Reasoning"
+        case .commandExecution: return "Running Command"
+        case .fileChange: return "Editing Files"
+        case .webSearch: return "Web Search"
+        case .agentMessage: return "Generating Reply"
         case .input: return "Input"
         case .cached: return "Cached"
         case .uncached: return "Uncached"

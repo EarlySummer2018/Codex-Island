@@ -1,12 +1,33 @@
 import Foundation
 
 enum CodexSessionState: String, Codable, Equatable {
+    case notLoaded = "not_loaded"
     case idle
-    case thinking
-    case working
-    case streaming
-    case awaitingInput = "awaiting_input"
+    case running
+    case waitingForInput = "waiting_for_input"
+    case readyForReview = "ready_for_review"
     case error
+}
+
+enum CodexActivityKind: String, Codable, Equatable {
+    case none
+    case reasoning
+    case commandExecution = "command_execution"
+    case fileChange = "file_change"
+    case webSearch = "web_search"
+    case agentMessage = "agent_message"
+}
+
+enum CodexTurnState: String, Codable, Equatable {
+    case inProgress = "in_progress"
+    case completed
+    case interrupted
+    case failed
+}
+
+enum SessionStateSource: String, Codable, Equatable {
+    case appServer = "app_server"
+    case jsonl
 }
 
 enum AwaitReason: Codable, Equatable {
@@ -53,13 +74,48 @@ enum AwaitReason: Codable, Equatable {
 struct SessionStateEvent: Codable, Equatable {
     let sessionId: String
     let state: CodexSessionState
+    let activityKind: CodexActivityKind
+    let turnState: CodexTurnState?
+    let source: SessionStateSource?
     let timestamp: Date
     let awaitReason: AwaitReason?
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
         case state
+        case activityKind = "activity_kind"
+        case turnState = "turn_state"
+        case source
         case timestamp
         case awaitReason = "await_reason"
+    }
+
+    init(
+        sessionId: String,
+        state: CodexSessionState,
+        activityKind: CodexActivityKind = .none,
+        turnState: CodexTurnState? = nil,
+        source: SessionStateSource? = nil,
+        timestamp: Date,
+        awaitReason: AwaitReason? = nil
+    ) {
+        self.sessionId = sessionId
+        self.state = state
+        self.activityKind = activityKind
+        self.turnState = turnState
+        self.source = source
+        self.timestamp = timestamp
+        self.awaitReason = awaitReason
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        sessionId = try container.decode(String.self, forKey: .sessionId)
+        state = try container.decode(CodexSessionState.self, forKey: .state)
+        activityKind = try container.decodeIfPresent(CodexActivityKind.self, forKey: .activityKind) ?? .none
+        turnState = try container.decodeIfPresent(CodexTurnState.self, forKey: .turnState)
+        source = try container.decodeIfPresent(SessionStateSource.self, forKey: .source)
+        timestamp = try container.decode(Date.self, forKey: .timestamp)
+        awaitReason = try container.decodeIfPresent(AwaitReason.self, forKey: .awaitReason)
     }
 }

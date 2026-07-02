@@ -455,12 +455,26 @@ fn sanitize_response_item(parsed: &Value, timestamp: Option<Value>) -> Option<Va
     let payload_type = payload.get("type").and_then(|value| value.as_str())?;
 
     match payload_type {
+        "reasoning" => Some(json_object(
+            "response_item",
+            timestamp,
+            vec![("type", Some(Value::String("reasoning".to_string())))],
+        )),
+        "web_search_call" => Some(json_object(
+            "response_item",
+            timestamp,
+            vec![
+                ("type", Some(Value::String("web_search".to_string()))),
+                ("status", payload.get("status").cloned()),
+            ],
+        )),
         "function_call" | "custom_tool_call" => Some(json_object(
             "response_item",
             timestamp,
             vec![
                 ("type", Some(Value::String("tool_call".to_string()))),
                 ("tool", payload.get("name").cloned()),
+                ("status", payload.get("status").cloned()),
             ],
         )),
         _ => None,
@@ -497,6 +511,10 @@ fn sanitize_event_msg(parsed: &Value, timestamp: Option<Value>) -> Option<Value>
         "agent_message" => vec![
             ("type", Some(Value::String(payload_type.to_string()))),
             ("phase", payload.get("phase").cloned()),
+        ],
+        "patch_apply_end" => vec![
+            ("type", Some(Value::String(payload_type.to_string()))),
+            ("success", payload.get("success").cloned()),
         ],
         "user_message" | "assistant_message_start" | "assistant_message_stop" | "tool_approval" => {
             vec![
@@ -645,7 +663,10 @@ fn is_state_seed_payload_type(payload_type: &str) -> bool {
             | "task_complete"
             | "user_message"
             | "agent_message"
+            | "reasoning"
+            | "web_search"
             | "tool_call"
+            | "patch_apply_end"
             | "token_count"
             | "assistant_message_stop"
             | "awaiting_approval"

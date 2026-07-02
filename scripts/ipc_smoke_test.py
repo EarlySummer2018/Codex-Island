@@ -8,6 +8,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from typing import Optional
 
 
 def wait_for_socket(path: Path, timeout: float = 6.0) -> None:
@@ -100,6 +101,23 @@ def state_count(messages: list[dict], state: str) -> int:
     return states(messages).count(state)
 
 
+def has_state_activity(
+    messages: list[dict],
+    state: str,
+    activity: Optional[str] = None,
+    session_id: Optional[str] = None,
+) -> bool:
+    for message in messages:
+        if message.get("state") != state:
+            continue
+        if activity is not None and message.get("activity_kind") != activity:
+            continue
+        if session_id is not None and message.get("session_id") != session_id:
+            continue
+        return True
+    return False
+
+
 def main() -> int:
     binary = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("codex-watcher/target/debug/codex-watcher")
     binary = binary.resolve()
@@ -172,7 +190,7 @@ def main() -> int:
             wait_for(
                 client,
                 messages,
-                lambda received: "streaming" in states(received)
+                lambda received: has_state_activity(received, "running", "agent_message")
                 and any(message.get("total_output") == 12 for message in received)
                 and any(
                     message.get("total_tokens") == 132
@@ -200,7 +218,7 @@ def main() -> int:
                     },
                 },
             )
-            wait_for(client, messages, lambda received: "awaiting_input" in states(received))
+            wait_for(client, messages, lambda received: "waiting_for_input" in states(received))
 
             append_jsonl(
                 rollout,
@@ -212,7 +230,7 @@ def main() -> int:
                     },
                 },
             )
-            wait_for(client, messages, lambda received: state_count(received, "thinking") >= 2)
+            wait_for(client, messages, lambda received: state_count(received, "running") >= 2)
 
             append_jsonl(
                 rollout,
@@ -224,7 +242,7 @@ def main() -> int:
             wait_for(
                 client,
                 messages,
-                lambda received: state_count(received, "streaming") >= 2
+                lambda received: state_count(received, "running") >= 3
                 and any(
                     message.get("total_input") == 220
                     and message.get("total_cached_input") == 120
@@ -276,7 +294,7 @@ def main() -> int:
                     },
                 },
             )
-            wait_for(client, messages, lambda received: state_count(received, "awaiting_input") >= 2)
+            wait_for(client, messages, lambda received: state_count(received, "waiting_for_input") >= 2)
 
             append_jsonl(
                 rollout,
@@ -307,7 +325,8 @@ def main() -> int:
                 messages,
                 lambda received: any(
                     message.get("session_id") == fallback_session_id
-                    and message.get("state") == "thinking"
+                    and message.get("state") == "running"
+                    and message.get("activity_kind") == "reasoning"
                     for message in received
                 ),
             )
@@ -324,7 +343,8 @@ def main() -> int:
                 messages,
                 lambda received: any(
                     message.get("session_id") == fallback_session_id
-                    and message.get("state") == "streaming"
+                    and message.get("state") == "running"
+                    and message.get("activity_kind") == "agent_message"
                     for message in received
                 )
                 and any(
@@ -358,12 +378,12 @@ def main() -> int:
                     and message.get("total_output") == 7
                     for message in received
                 )
-                and any(message.get("state") == "streaming" for message in received),
+                and any(message.get("state") == "running" for message in received),
             )
             replay_client.close()
 
-            if not any(message.get("state") == "awaiting_input" for message in messages):
-                raise AssertionError("awaiting_input state missing")
+            if not any(message.get("state") == "waiting_for_input" for message in messages):
+                raise AssertionError("waiting_for_input state missing")
             if any(message.get("message") for message in messages):
                 raise AssertionError(f"unsanitized private error message leaked: {messages}")
 

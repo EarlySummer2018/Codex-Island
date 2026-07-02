@@ -46,7 +46,11 @@ struct ExpandedPanelView: View {
                     )
 
                 PixelPetView(
-                    animationName: PetAnimation.from(state: eventBus.sessionState, level: evolutionStore.level),
+                    animationName: PetAnimation.from(
+                        state: eventBus.sessionState,
+                        activityKind: eventBus.activityKind,
+                        level: evolutionStore.level
+                    ),
                     size: 30,
                     form: evolutionStore.currentForm,
                     level: evolutionStore.level,
@@ -124,11 +128,15 @@ struct ExpandedPanelView: View {
         VStack(spacing: 6) {
             Spacer(minLength: 4)
 
-            PixelPetView(
-                animationName: PetAnimation.from(state: eventBus.sessionState, level: evolutionStore.level),
-                size: 82,
-                form: evolutionStore.currentForm,
-                level: evolutionStore.level,
+                PixelPetView(
+                    animationName: PetAnimation.from(
+                        state: eventBus.sessionState,
+                        activityKind: eventBus.activityKind,
+                        level: evolutionStore.level
+                    ),
+                    size: 82,
+                    form: evolutionStore.currentForm,
+                    level: evolutionStore.level,
                 feedTrigger: evolutionStore.feedTrigger
             )
 
@@ -261,6 +269,10 @@ struct ExpandedPanelView: View {
     }
 
     private var subtitle: String {
+        if let activityText = activityText {
+            return activityText
+        }
+
         guard let token = store.latest else {
             return settings.text(.noTokenDataYet)
         }
@@ -378,8 +390,8 @@ struct ExpandedPanelView: View {
     }
 
     private var footerText: String {
-        if eventBus.isAwaitingInput {
-            return title(for: .awaitingInput)
+        if let activityText = activityText {
+            return "\(title(for: eventBus.sessionState)) · \(activityText)"
         }
 
         return title(for: eventBus.sessionState)
@@ -396,16 +408,16 @@ struct ExpandedPanelView: View {
 
     private var statusColor: Color {
         switch eventBus.sessionState {
+        case .notLoaded:
+            return PanelPalette.textMuted
         case .idle:
             return PanelPalette.textMuted
-        case .thinking:
-            return TokenColors.uncached
-        case .working:
-            return TokenColors.uncached
-        case .streaming:
+        case .running:
             return PanelPalette.cyan
-        case .awaitingInput:
+        case .waitingForInput:
             return Color(red: 0.94, green: 0.27, blue: 0.27)
+        case .readyForReview:
+            return PanelPalette.magenta
         case .error:
             return Color(red: 1.0, green: 0.18, blue: 0.18)
         }
@@ -429,18 +441,35 @@ struct ExpandedPanelView: View {
 
     private func title(for state: CodexSessionState) -> String {
         switch state {
+        case .notLoaded:
+            return settings.text(.notLoaded)
         case .idle:
             return settings.text(.idle)
-        case .thinking:
-            return settings.text(.thinking)
-        case .working:
-            return settings.text(.working)
-        case .streaming:
-            return settings.text(.streaming)
-        case .awaitingInput:
-            return settings.text(.awaitingInput)
+        case .running:
+            return settings.text(.running)
+        case .waitingForInput:
+            return settings.text(.waitingForInput)
+        case .readyForReview:
+            return settings.text(.readyForReview)
         case .error:
             return settings.text(.error)
+        }
+    }
+
+    private var activityText: String? {
+        switch eventBus.activityKind {
+        case .none:
+            return nil
+        case .reasoning:
+            return settings.text(.reasoning)
+        case .commandExecution:
+            return settings.text(.commandExecution)
+        case .fileChange:
+            return settings.text(.fileChange)
+        case .webSearch:
+            return settings.text(.webSearch)
+        case .agentMessage:
+            return settings.text(.agentMessage)
         }
     }
 }

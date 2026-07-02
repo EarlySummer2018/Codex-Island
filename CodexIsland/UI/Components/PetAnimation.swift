@@ -80,18 +80,27 @@ enum PetAnimation: String, Equatable {
         }
     }
 
-    static func from(state: CodexSessionState, level: Int = 0) -> PetAnimation {
+    static func from(
+        state: CodexSessionState,
+        activityKind: CodexActivityKind = .none,
+        level: Int = 0
+    ) -> PetAnimation {
         switch state {
-        case .idle:
+        case .notLoaded, .idle:
             return .idleBreathe
-        case .thinking:
-            return .bubbleThink
-        case .working:
-            return .bubbleThink
-        case .streaming:
-            return .outputBurst
-        case .awaitingInput:
+        case .running:
+            switch activityKind {
+            case .reasoning:
+                return .bubbleThink
+            case .fileChange, .agentMessage:
+                return .outputBurst
+            case .none, .commandExecution, .webSearch:
+                return .talkWalk
+            }
+        case .waitingForInput:
             return .awaitJump
+        case .readyForReview:
+            return .bubbleThink
         case .error:
             return .errorFall
         }

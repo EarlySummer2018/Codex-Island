@@ -16,6 +16,8 @@ final class NotchIslandPanel: NSPanel {
     private var dragStartMouseLocation: NSPoint = .zero
     private var dragStartFrame: NSRect = .zero
     private var dragResistanceScreen: NSScreen?
+    private var stableAnchorMidX: CGFloat?
+    private var hoverAnchorMidX: CGFloat?
     private var cancellables = Set<AnyCancellable>()
 
     private init() {
@@ -97,10 +99,11 @@ final class NotchIslandPanel: NSPanel {
     func transition(
         to shape: IslandShape,
         animated: Bool = true,
+        anchorMidX: CGFloat? = nil,
         completion: (() -> Void)? = nil
     ) {
         currentShape = shape
-        relayout(animated: animated, completion: completion)
+        relayout(animated: animated, completion: completion, anchorMidX: anchorMidX)
     }
 
     func resetPosition() {
@@ -194,8 +197,10 @@ final class NotchIslandPanel: NSPanel {
         isHovered = true
         contentModel.isExpanded = false
         contentModel.isExpandedContainer = true
+        let anchorMidX = stableAnchorMidX ?? frame.midX
+        hoverAnchorMidX = anchorMidX
 
-        transition(to: .expanded) { [weak self] in
+        transition(to: .expanded, anchorMidX: anchorMidX) { [weak self] in
             guard let self,
                   self.isHovered,
                   self.currentShape == .expanded,
@@ -211,7 +216,11 @@ final class NotchIslandPanel: NSPanel {
     private func collapseFromHover() {
         isHovered = false
         contentModel.isExpanded = false
-        transition(to: restingShape) { [weak self] in
+        let anchorMidX = stableAnchorMidX ?? frame.midX
+        stableAnchorMidX = anchorMidX
+        hoverAnchorMidX = anchorMidX
+
+        transition(to: restingShape, anchorMidX: anchorMidX) { [weak self] in
             guard let self,
                   !self.isHovered,
                   self.currentShape == self.restingShape else {
@@ -219,6 +228,7 @@ final class NotchIslandPanel: NSPanel {
             }
 
             self.contentModel.isExpandedContainer = false
+            self.hoverAnchorMidX = nil
         }
     }
 
@@ -297,6 +307,7 @@ final class NotchIslandPanel: NSPanel {
         isDragging = false
         dragResistanceScreen = nil
         setPressingForDrag(false)
+        stableAnchorMidX = frame.midX
         saveCurrentPosition()
     }
 
@@ -331,7 +342,8 @@ final class NotchIslandPanel: NSPanel {
     private func relayout(
         animated: Bool,
         completion: (() -> Void)? = nil,
-        anchorsToCurrentTopEdge: Bool = true
+        anchorsToCurrentTopEdge: Bool = true,
+        anchorMidX: CGFloat? = nil
     ) {
         guard settings.isCapsuleVisible else {
             orderOut(nil)
@@ -350,10 +362,12 @@ final class NotchIslandPanel: NSPanel {
             notchFrame: notchFrame,
             screen: screen
         )
+        let effectiveAnchorMidX = anchorMidX ?? hoverAnchorMidX
         let anchoredWindowFrame = anchorsToCurrentTopEdge
             ? frameAnchoredToCurrentTopEdgeWhenVisible(
                 proposedWindowFrame,
-                on: screen
+                on: screen,
+                anchorMidX: effectiveAnchorMidX
             )
             : proposedWindowFrame
         if animated {
@@ -362,12 +376,22 @@ final class NotchIslandPanel: NSPanel {
                 context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
                 animator().setFrame(anchoredWindowFrame, display: true)
             } completionHandler: {
+                self.updateStableAnchorIfNeeded(frame: anchoredWindowFrame)
                 completion?()
             }
         } else {
             setFrame(anchoredWindowFrame, display: true)
+            updateStableAnchorIfNeeded(frame: anchoredWindowFrame)
             completion?()
         }
+    }
+
+    private func updateStableAnchorIfNeeded(frame: NSRect) {
+        guard currentShape != .expanded else {
+            return
+        }
+
+        stableAnchorMidX = frame.midX
     }
 
     private func targetScreen() -> NSScreen? {
@@ -632,7 +656,8 @@ final class NotchIslandPanel: NSPanel {
 
     private func frameAnchoredToCurrentTopEdgeWhenVisible(
         _ proposedFrame: NSRect,
-        on screen: NSScreen
+        on screen: NSScreen,
+        anchorMidX: CGFloat? = nil
     ) -> NSRect {
         let currentFrame = frame
         let currentCenter = NSPoint(x: currentFrame.midX, y: currentFrame.midY)
@@ -644,8 +669,10 @@ final class NotchIslandPanel: NSPanel {
             return proposedFrame
         }
 
+        let resolvedAnchorMidX = anchorMidX ?? currentFrame.midX
+
         return NSRect(
-            x: currentFrame.midX - proposedFrame.width / 2,
+            x: resolvedAnchorMidX - proposedFrame.width / 2,
             y: currentFrame.maxY - proposedFrame.height,
             width: proposedFrame.width,
             height: proposedFrame.height
@@ -677,6 +704,11 @@ private final class IslandPositionStore {
 
     func origin(for size: NSSize, on screen: NSScreen, usableFrame: NSRect) -> NSPoint? {
         guard let position = load(for: screen) else {
+            return nil
+        }
+
+        guard position.reference == .center else {
+            reset(on: screen)
             return nil
         }
 
@@ -734,12 +766,13 @@ private final class IslandPositionStore {
 
 enum IslandPositionGeometry {
     static func position(for frame: NSRect, usableFrame: NSRect) -> SavedIslandPosition {
-        let maxX = max(usableFrame.width - frame.width, 1)
-        let maxY = max(usableFrame.height - frame.height, 1)
+        let maxX = max(usableFrame.width, 1)
+        let maxY = max(usableFrame.height, 1)
 
         return SavedIslandPosition(
-            xRatio: (frame.minX - usableFrame.minX) / maxX,
-            yRatio: (frame.minY - usableFrame.minY) / maxY
+            xRatio: (frame.midX - usableFrame.minX) / maxX,
+            yRatio: (frame.midY - usableFrame.minY) / maxY,
+            reference: .center
         )
     }
 
@@ -748,19 +781,55 @@ enum IslandPositionGeometry {
         usableFrame: NSRect,
         position: SavedIslandPosition
     ) -> NSPoint {
-        let maxX = max(usableFrame.width - size.width, 1)
-        let maxY = max(usableFrame.height - size.height, 1)
+        switch position.reference {
+        case .origin:
+            let maxX = max(usableFrame.width - size.width, 1)
+            let maxY = max(usableFrame.height - size.height, 1)
 
-        return NSPoint(
-            x: usableFrame.minX + maxX * position.xRatio,
-            y: usableFrame.minY + maxY * position.yRatio
-        )
+            return NSPoint(
+                x: usableFrame.minX + maxX * position.xRatio,
+                y: usableFrame.minY + maxY * position.yRatio
+            )
+        case .center:
+            let centerX = usableFrame.minX + usableFrame.width * position.xRatio
+            let centerY = usableFrame.minY + usableFrame.height * position.yRatio
+
+            return NSPoint(
+                x: centerX - size.width / 2,
+                y: centerY - size.height / 2
+            )
+        }
     }
 }
 
 struct SavedIslandPosition: Codable, Equatable {
     let xRatio: CGFloat
     let yRatio: CGFloat
+    let reference: Reference
+
+    enum Reference: String, Codable, Equatable {
+        case origin
+        case center
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case xRatio
+        case yRatio
+        case reference
+    }
+
+    init(xRatio: CGFloat, yRatio: CGFloat, reference: Reference) {
+        self.xRatio = xRatio
+        self.yRatio = yRatio
+        self.reference = reference
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        xRatio = try container.decode(CGFloat.self, forKey: .xRatio)
+        yRatio = try container.decode(CGFloat.self, forKey: .yRatio)
+        reference = try container.decodeIfPresent(Reference.self, forKey: .reference) ?? .origin
+    }
 }
 
 private enum DragResistanceEdge {
