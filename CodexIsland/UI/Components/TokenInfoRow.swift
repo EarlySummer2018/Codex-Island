@@ -15,12 +15,12 @@ struct TokenInfoRow: View {
     }
 
     private var largeRow: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 7) {
             TokenPill(
                 label: settings.text(.input),
                 value: store.totalInput,
                 color: TokenColors.input,
-                width: 50
+                width: 44
             )
 
             TokenPill(
@@ -28,25 +28,41 @@ struct TokenInfoRow: View {
                 value: store.totalCachedInput,
                 color: TokenColors.cached,
                 suffix: store.cacheHitPercent,
-                width: 74
+                width: 68
             )
 
             TokenPill(
                 label: settings.text(.output),
                 value: store.totalOutput,
                 color: TokenColors.output,
-                width: 50
+                width: 44
+            )
+
+            TokenPill(
+                label: todayLabel,
+                value: store.todayTotalTokens,
+                color: TokenColors.output,
+                width: 52
             )
 
             TokenPill(
                 label: settings.text(.total),
                 value: store.totalTokens,
                 color: TokenColors.total,
-                width: 64,
+                width: 52,
                 alignment: .trailing
             )
         }
         .frame(width: 296, height: 28)
+    }
+
+    private var todayLabel: String {
+        switch settings.language {
+        case .chinese:
+            return "今日"
+        case .english:
+            return "TODAY"
+        }
     }
 
     private var smallRow: some View {
