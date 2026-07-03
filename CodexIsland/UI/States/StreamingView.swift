@@ -6,7 +6,7 @@ struct StreamingView: View {
     @ObservedObject private var evolutionStore = PetEvolutionStore.shared
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             if settings.isDesktopPetEnabled {
                 Color.clear
                     .frame(width: 28, height: 28)
@@ -21,8 +21,7 @@ struct StreamingView: View {
 
             TokenInfoRow(style: settings.capsuleStyle)
         }
-        .padding(.leading, 12)
-        .padding(.trailing, 14)
+        .padding(.horizontal, 10)
         .frame(
             width: settings.capsuleStyle.pillSize.width,
             height: settings.capsuleStyle.pillSize.height,

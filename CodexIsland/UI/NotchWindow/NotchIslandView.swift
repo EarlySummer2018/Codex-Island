@@ -4,6 +4,12 @@ import SwiftUI
 final class NotchIslandContentModel: ObservableObject {
     @Published var isExpanded = false
     @Published var isExpandedContainer = false
+    @Published var expandedMode: NotchIslandExpandedMode = .dashboard
+}
+
+enum NotchIslandExpandedMode {
+    case dashboard
+    case settings
 }
 
 struct NotchIslandView: View {
@@ -18,7 +24,7 @@ struct NotchIslandView: View {
         ZStack(alignment: .top) {
             Group {
                 if model.isExpanded {
-                    ExpandedPanelView()
+                    expandedContent
                         .transition(.opacity)
                 } else {
                     pillContent
@@ -58,6 +64,20 @@ struct NotchIslandView: View {
     @ViewBuilder
     private var pillContent: some View {
         StreamingView(animationName: petAnimation)
+    }
+
+    @ViewBuilder
+    private var expandedContent: some View {
+        switch model.expandedMode {
+        case .dashboard:
+            ExpandedPanelView {
+                model.expandedMode = .settings
+            }
+        case .settings:
+            SettingsPanelView {
+                model.expandedMode = .dashboard
+            }
+        }
     }
 
     private var petAnimation: PetAnimation {

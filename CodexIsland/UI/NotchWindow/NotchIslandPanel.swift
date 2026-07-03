@@ -91,6 +91,9 @@ final class NotchIslandPanel: NSPanel {
     func hide() {
         isDragging = false
         isPressingForDrag = false
+        contentModel.isExpanded = false
+        contentModel.isExpandedContainer = false
+        contentModel.expandedMode = .dashboard
         orderOut(nil)
     }
 
@@ -211,6 +214,7 @@ final class NotchIslandPanel: NSPanel {
     private func collapseFromHover() {
         isHovered = false
         contentModel.isExpanded = false
+        contentModel.expandedMode = .dashboard
         transition(to: restingShape) { [weak self] in
             guard let self,
                   !self.isHovered,
@@ -326,6 +330,7 @@ final class NotchIslandPanel: NSPanel {
         currentShape = restingShape
         contentModel.isExpanded = false
         contentModel.isExpandedContainer = false
+        contentModel.expandedMode = .dashboard
     }
 
     private func relayout(
@@ -877,7 +882,7 @@ private final class NotchIslandHostingView: NSHostingView<NotchIslandView> {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        if isDragHandlePoint(point) {
+        if interactionRegion(at: point) == .drag {
             return self
         }
 
@@ -886,7 +891,7 @@ private final class NotchIslandHostingView: NSHostingView<NotchIslandView> {
 
     override func mouseDown(with event: NSEvent) {
         let localPoint = convert(event.locationInWindow, from: nil)
-        guard isDragHandlePoint(localPoint) else {
+        guard interactionRegion(at: localPoint) == .drag else {
             super.mouseDown(with: event)
             return
         }
@@ -898,23 +903,65 @@ private final class NotchIslandHostingView: NSHostingView<NotchIslandView> {
         true
     }
 
-    private func isDragHandlePoint(_ point: NSPoint) -> Bool {
-        guard bounds.height >= 80 else {
-            return bounds.contains(point)
+    private func interactionRegion(at point: NSPoint) -> IslandInteractionRegion {
+        IslandInteractionHitTest.region(for: point, in: bounds, isFlipped: isFlipped)
+    }
+}
+
+enum IslandInteractionRegion: Equatable {
+    case content
+    case drag
+    case settingsButton
+}
+
+enum IslandInteractionHitTest {
+    static let expandedHeaderHeight: CGFloat = 64
+    static let settingsButtonSize = CGSize(width: 44, height: 44)
+    static let settingsButtonInset: CGFloat = 10
+
+    static func region(
+        for point: NSPoint,
+        in bounds: NSRect,
+        isFlipped: Bool
+    ) -> IslandInteractionRegion {
+        guard bounds.contains(point) else {
+            return .content
         }
 
-        let handleWidth = min(max(bounds.width * 0.22, 76), 112)
-        let handleHeight: CGFloat = 58
-        let handleY = isFlipped
-            ? bounds.minY + 4
-            : bounds.maxY - handleHeight - 4
-        let handleFrame = NSRect(
-            x: bounds.maxX - handleWidth - 10,
-            y: handleY,
-            width: handleWidth,
-            height: handleHeight
-        )
+        guard bounds.height >= 80 else {
+            return .drag
+        }
 
-        return handleFrame.contains(point)
+        if settingsButtonFrame(in: bounds, isFlipped: isFlipped).contains(point) {
+            return .settingsButton
+        }
+
+        if headerFrame(in: bounds, isFlipped: isFlipped).contains(point) {
+            return .drag
+        }
+
+        return .content
+    }
+
+    static func headerFrame(in bounds: NSRect, isFlipped: Bool) -> NSRect {
+        let y = isFlipped ? bounds.minY : bounds.maxY - expandedHeaderHeight
+        return NSRect(
+            x: bounds.minX,
+            y: y,
+            width: bounds.width,
+            height: expandedHeaderHeight
+        )
+    }
+
+    static func settingsButtonFrame(in bounds: NSRect, isFlipped: Bool) -> NSRect {
+        let y = isFlipped
+            ? bounds.minY + settingsButtonInset
+            : bounds.maxY - settingsButtonInset - settingsButtonSize.height
+        return NSRect(
+            x: bounds.maxX - settingsButtonInset - settingsButtonSize.width,
+            y: y,
+            width: settingsButtonSize.width,
+            height: settingsButtonSize.height
+        )
     }
 }

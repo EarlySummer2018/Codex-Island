@@ -3,7 +3,7 @@ import Combine
 import CoreGraphics
 import Foundation
 
-enum CapsuleDisplayStyle: String, CaseIterable, Codable {
+enum CapsuleDisplayStyle: String, CaseIterable, Codable, Hashable {
     case large
     case small
 
@@ -17,7 +17,7 @@ enum CapsuleDisplayStyle: String, CaseIterable, Codable {
     }
 }
 
-enum AppLanguage: String, CaseIterable, Codable {
+enum AppLanguage: String, CaseIterable, Codable, Hashable {
     case chinese = "zh-Hans"
     case english = "en"
 }

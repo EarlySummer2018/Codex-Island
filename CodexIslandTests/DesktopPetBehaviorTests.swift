@@ -174,6 +174,47 @@ final class DesktopPetBehaviorTests: XCTestCase {
         XCTAssertEqual(restoredOrigin.y, offscreenFrame.minY, accuracy: 0.001)
     }
 
+    func testIslandInteractionHitAreasPrioritizeSettingsThenHeaderDrag() {
+        let expandedBounds = CGRect(x: 0, y: 0, width: 440, height: 290)
+        let settingsFrame = IslandInteractionHitTest.settingsButtonFrame(
+            in: expandedBounds,
+            isFlipped: true
+        )
+
+        XCTAssertEqual(
+            IslandInteractionHitTest.region(
+                for: CGPoint(x: settingsFrame.midX, y: settingsFrame.midY),
+                in: expandedBounds,
+                isFlipped: true
+            ),
+            .settingsButton
+        )
+        XCTAssertEqual(
+            IslandInteractionHitTest.region(
+                for: CGPoint(x: 34, y: 32),
+                in: expandedBounds,
+                isFlipped: true
+            ),
+            .drag
+        )
+        XCTAssertEqual(
+            IslandInteractionHitTest.region(
+                for: CGPoint(x: 220, y: 120),
+                in: expandedBounds,
+                isFlipped: true
+            ),
+            .content
+        )
+        XCTAssertEqual(
+            IslandInteractionHitTest.region(
+                for: CGPoint(x: 90, y: 18),
+                in: CGRect(x: 0, y: 0, width: 220, height: 34),
+                isFlipped: true
+            ),
+            .drag
+        )
+    }
+
     func testMovingAnimationsAlwaysUseStrideFrames() {
         XCTAssertEqual(DesktopPetBehaviorEngine.movingAnimation(for: .idle), .talkWalk)
         XCTAssertEqual(DesktopPetBehaviorEngine.movingAnimation(for: .thinking), .talkWalk)
@@ -324,6 +365,35 @@ final class DesktopPetBehaviorTests: XCTestCase {
             XCTAssertEqual(snapshot.sessionCount, 3)
         default:
             XCTFail("Expected daily token snapshot")
+        }
+    }
+
+    func testIpcDecoderRecognizesTokenContextUsage() {
+        let line = """
+        {"session_id":"sess-1","session_file":"/tmp/sess-1.jsonl","delta_input":10,"delta_cached_input":4,"delta_uncached_input":6,"delta_output":2,"delta_reasoning":1,"total_input":120,"total_cached_input":40,"total_uncached_input":80,"total_output":12,"total_reasoning":3,"context_used":154630,"context_window":258400,"cache_hit_rate":0.333333,"timestamp":"2026-07-01T08:00:00Z","turn_index":1}
+        """
+
+        switch IpcEventDecoder().decode(line: line) {
+        case .token(let snapshot):
+            XCTAssertEqual(snapshot.contextUsed, 154630)
+            XCTAssertEqual(snapshot.contextWindow, 258400)
+            XCTAssertEqual(snapshot.contextUsagePercent, "59.8%")
+        default:
+            XCTFail("Expected token snapshot")
+        }
+    }
+
+    func testTokenContextUsageFallsBackToDefaultWindow() {
+        let line = """
+        {"session_id":"sess-1","session_file":"/tmp/sess-1.jsonl","delta_input":10,"delta_cached_input":4,"delta_uncached_input":6,"delta_output":2,"delta_reasoning":1,"total_input":120,"total_cached_input":40,"total_uncached_input":80,"total_output":12,"total_reasoning":3,"context_used":129200,"cache_hit_rate":0.333333,"timestamp":"2026-07-01T08:00:00Z","turn_index":1}
+        """
+
+        switch IpcEventDecoder().decode(line: line) {
+        case .token(let snapshot):
+            XCTAssertNil(snapshot.contextWindow)
+            XCTAssertEqual(snapshot.contextUsagePercent, "50.0%")
+        default:
+            XCTFail("Expected token snapshot")
         }
     }
 

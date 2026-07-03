@@ -5,6 +5,7 @@ struct ExpandedPanelView: View {
     @ObservedObject private var eventBus = EventBus.shared
     @ObservedObject private var evolutionStore = PetEvolutionStore.shared
     @ObservedObject private var settings = AppSettingsStore.shared
+    var onSettingsTapped: () -> Void = {}
 
     var body: some View {
         VStack(spacing: 0) {
@@ -78,7 +79,7 @@ struct ExpandedPanelView: View {
                     .minimumScaleFactor(0.72)
                     .frame(minWidth: 28)
 
-                dragHandle
+                settingsButton
             }
             .padding(.horizontal, 8)
             .frame(height: 26)
@@ -90,26 +91,21 @@ struct ExpandedPanelView: View {
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
                     .stroke(PanelPalette.magenta.opacity(0.20), lineWidth: 1)
             )
-            .help(dragHelpText)
         }
         .padding(.horizontal, PanelMetrics.horizontalPadding)
         .frame(height: 64)
     }
 
-    private var dragHandle: some View {
-        VStack(spacing: 2) {
-            Capsule()
-                .fill(PanelPalette.textMuted)
-                .frame(width: 16, height: 2)
-            Capsule()
-                .fill(PanelPalette.textDim)
-                .frame(width: 16, height: 2)
-            Capsule()
-                .fill(PanelPalette.textDim)
-                .frame(width: 16, height: 2)
+    private var settingsButton: some View {
+        Button(action: onSettingsTapped) {
+            Image(systemName: "gearshape.fill")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(PanelPalette.text)
+                .frame(width: 22, height: 22)
         }
-        .frame(width: 18, height: 16)
-        .accessibilityLabel(dragHelpText)
+        .buttonStyle(.plain)
+        .accessibilityLabel(settingsTitle)
+        .help(settingsTitle)
     }
 
     private var mainDeck: some View {
@@ -349,12 +345,12 @@ struct ExpandedPanelView: View {
         "Lv.\(evolutionStore.level)"
     }
 
-    private var dragHelpText: String {
+    private var settingsTitle: String {
         switch settings.language {
         case .chinese:
-            return "按住此区域拖拽"
+            return "设置"
         case .english:
-            return "Hold here to drag"
+            return "Settings"
         }
     }
 
@@ -445,7 +441,7 @@ struct ExpandedPanelView: View {
     }
 }
 
-private enum PanelMetrics {
+enum PanelMetrics {
     static let horizontalPadding: CGFloat = 14
     static let contentTopPadding: CGFloat = 8
     static let mainDeckHeight: CGFloat = 122
@@ -456,7 +452,7 @@ private enum PanelMetrics {
     static let petColumnWidth: CGFloat = 132
 }
 
-private enum PanelPalette {
+enum PanelPalette {
     static let surface = Color(red: 0.035, green: 0.035, blue: 0.045)
     static let control = Color(red: 0.10, green: 0.10, blue: 0.12)
     static let edge = Color.white.opacity(0.08)

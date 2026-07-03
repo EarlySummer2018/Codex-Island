@@ -1,5 +1,5 @@
 use crate::parser::RawEvent;
-use crate::token_usage::token_count_value;
+use crate::token_usage::{context_used_tokens, model_context_window, token_count_value};
 use crate::watcher::jsonl_watcher::RawJsonlLine;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -32,6 +32,8 @@ pub struct TokenSnapshot {
     pub total_uncached_input: u64,
     pub total_output: u64,
     pub total_reasoning: u64,
+    pub context_used: u64,
+    pub context_window: Option<u64>,
 
     pub cache_hit_rate: f64,
     pub timestamp: DateTime<Utc>,
@@ -95,6 +97,8 @@ impl TokenParser {
             output_tokens: token_count_value(payload, "output_tokens").unwrap_or(0),
             reasoning_tokens: token_count_value(payload, "reasoning_tokens").unwrap_or(0),
         };
+        let context_used =
+            context_used_tokens(payload).unwrap_or(current.input_tokens + current.output_tokens);
 
         debug!(
             "token_count raw: input={} cached={} output={} reasoning={}",
@@ -154,6 +158,8 @@ impl TokenParser {
                 .saturating_sub(current.cached_input_tokens),
             total_output: current.output_tokens,
             total_reasoning: current.reasoning_tokens,
+            context_used,
+            context_window: model_context_window(payload),
             cache_hit_rate,
             timestamp: Utc::now(),
             turn_index,
@@ -243,9 +249,10 @@ mod tests {
                         "cached_input_tokens": 1,
                         "output_tokens": 1,
                         "reasoning_output_tokens": 0,
-                        "total_tokens": 2
+                        "total_tokens": 154630
                     }
-                }
+                },
+                "model_context_window": 258400
             }
         })
     }
@@ -323,6 +330,8 @@ mod tests {
         assert_eq!(snapshot.total_cached_input, 36520192);
         assert_eq!(snapshot.total_output, 113761);
         assert_eq!(snapshot.total_reasoning, 31644);
+        assert_eq!(snapshot.context_used, 154630);
+        assert_eq!(snapshot.context_window, Some(258400));
         assert_eq!(snapshot.delta_output, 113761);
         assert_eq!(snapshot.turn_index, 1);
     }

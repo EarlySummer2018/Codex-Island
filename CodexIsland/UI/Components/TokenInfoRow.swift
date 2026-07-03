@@ -15,12 +15,12 @@ struct TokenInfoRow: View {
     }
 
     private var largeRow: some View {
-        HStack(spacing: 7) {
+        HStack(spacing: 8) {
             TokenPill(
                 label: settings.text(.input),
                 value: store.totalInput,
                 color: TokenColors.input,
-                width: 44
+                width: largePillWidth
             )
 
             TokenPill(
@@ -28,33 +28,42 @@ struct TokenInfoRow: View {
                 value: store.totalCachedInput,
                 color: TokenColors.cached,
                 suffix: store.cacheHitPercent,
-                width: 68
+                width: largePillWidth
             )
 
             TokenPill(
                 label: settings.text(.output),
                 value: store.totalOutput,
                 color: TokenColors.output,
-                width: 44
+                width: largePillWidth
             )
 
             TokenPill(
                 label: todayLabel,
                 value: store.todayTotalTokens,
-                color: TokenColors.output,
-                width: 52
+                color: TokenColors.today,
+                width: largePillWidth
+            )
+
+            TokenPill(
+                label: contextLabel,
+                value: store.contextUsedTokens,
+                color: TokenColors.context,
+                suffix: store.contextUsagePercent,
+                width: largePillWidth
             )
 
             TokenPill(
                 label: settings.text(.total),
                 value: store.totalTokens,
                 color: TokenColors.total,
-                width: 52,
-                alignment: .trailing
+                width: largePillWidth
             )
         }
-        .frame(width: 296, height: 28)
+        .frame(width: 304, height: 28)
     }
+
+    private var largePillWidth: CGFloat { 44 }
 
     private var todayLabel: String {
         switch settings.language {
@@ -62,6 +71,15 @@ struct TokenInfoRow: View {
             return "今日"
         case .english:
             return "TODAY"
+        }
+    }
+
+    private var contextLabel: String {
+        switch settings.language {
+        case .chinese:
+            return "上下文"
+        case .english:
+            return "CTX"
         }
     }
 

@@ -723,6 +723,8 @@ mod tests {
             total_uncached_input: input.saturating_sub(cached),
             total_output: output,
             total_reasoning: reasoning,
+            context_used: input + output,
+            context_window: None,
             cache_hit_rate: 0.0,
             timestamp: Utc::now(),
             turn_index: 1,

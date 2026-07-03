@@ -1,4 +1,4 @@
-use crate::token_usage::token_count_value;
+use crate::token_usage::{context_used_tokens, model_context_window, token_count_value};
 use anyhow::{Context, Result};
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Serialize;
@@ -490,6 +490,8 @@ fn sanitize_event_msg(parsed: &Value, timestamp: Option<Value>) -> Option<Value>
                 "reasoning_tokens",
                 token_count_json_value(payload, "reasoning_tokens"),
             ),
+            ("context_used", token_context_used_json_value(payload)),
+            ("context_window", token_context_window_json_value(payload)),
         ],
         "task_started" | "task_complete" => {
             vec![("type", Some(Value::String(payload_type.to_string())))]
@@ -522,6 +524,18 @@ fn sanitize_event_msg(parsed: &Value, timestamp: Option<Value>) -> Option<Value>
 
 fn token_count_json_value(payload: &Value, internal_key: &str) -> Option<Value> {
     token_count_value(payload, internal_key)
+        .map(serde_json::Number::from)
+        .map(Value::Number)
+}
+
+fn token_context_used_json_value(payload: &Value) -> Option<Value> {
+    context_used_tokens(payload)
+        .map(serde_json::Number::from)
+        .map(Value::Number)
+}
+
+fn token_context_window_json_value(payload: &Value) -> Option<Value> {
+    model_context_window(payload)
         .map(serde_json::Number::from)
         .map(Value::Number)
 }
@@ -757,6 +771,7 @@ mod tests {
                         "total_tokens": 24
                     }
                 },
+                "model_context_window": 258400,
                 "rate_limits": {
                     "primary": {
                         "used_percent": 12.5
@@ -772,6 +787,8 @@ mod tests {
         assert_eq!(sanitized["payload"]["cached_input_tokens"], 40);
         assert_eq!(sanitized["payload"]["output_tokens"], 12);
         assert_eq!(sanitized["payload"]["reasoning_tokens"], 3);
+        assert_eq!(sanitized["payload"]["context_used"], 24);
+        assert_eq!(sanitized["payload"]["context_window"], 258400);
         assert!(sanitized["payload"].get("info").is_none());
         assert!(sanitized["payload"].get("rate_limits").is_none());
     }
