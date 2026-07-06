@@ -6,11 +6,10 @@ struct StreamingView: View {
     @ObservedObject private var evolutionStore = PetEvolutionStore.shared
 
     var body: some View {
+        let pillSize = settings.capsuleStyle.pillSize(desktopPetEnabled: settings.isDesktopPetEnabled)
+
         HStack(spacing: 8) {
-            if settings.isDesktopPetEnabled {
-                Color.clear
-                    .frame(width: 28, height: 28)
-            } else {
+            if !settings.isDesktopPetEnabled {
                 RoamingPetView(
                     animationName: animationName,
                     form: evolutionStore.currentForm,
@@ -23,8 +22,8 @@ struct StreamingView: View {
         }
         .padding(.horizontal, 10)
         .frame(
-            width: settings.capsuleStyle.pillSize.width,
-            height: settings.capsuleStyle.pillSize.height,
+            width: pillSize.width,
+            height: pillSize.height,
             alignment: .leading
         )
     }

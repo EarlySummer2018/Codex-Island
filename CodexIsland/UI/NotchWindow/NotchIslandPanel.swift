@@ -127,6 +127,13 @@ final class NotchIslandPanel: NSPanel {
             }
             .store(in: &cancellables)
 
+        settings.$isDesktopPetEnabled
+            .dropFirst()
+            .sink { [weak self] _ in
+                self?.relayout(animated: true)
+            }
+            .store(in: &cancellables)
+
         settings.$isCapsuleVisible
             .dropFirst()
             .sink { [weak self] visible in
@@ -456,7 +463,11 @@ final class NotchIslandPanel: NSPanel {
         screen: NSScreen
     ) -> NSRect {
         let usableFrame = usableFrame(for: screen)
-        var size = shape.size(fitting: notchFrame, capsuleStyle: settings.capsuleStyle)
+        var size = shape.size(
+            fitting: notchFrame,
+            capsuleStyle: settings.capsuleStyle,
+            desktopPetEnabled: settings.isDesktopPetEnabled
+        )
         size.width = min(size.width, usableFrame.width)
         size.height = min(size.height, usableFrame.height - IslandShape.topGap)
 

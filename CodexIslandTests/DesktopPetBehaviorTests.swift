@@ -116,6 +116,13 @@ final class DesktopPetBehaviorTests: XCTestCase {
         XCTAssertLessThan(DesktopPetMetrics.capsulePresentationScale, 0.28)
     }
 
+    func testCapsuleSizeShrinksWhenDesktopPetIsEnabled() {
+        XCTAssertEqual(CapsuleDisplayStyle.large.pillSize(desktopPetEnabled: false).width, 360)
+        XCTAssertEqual(CapsuleDisplayStyle.small.pillSize(desktopPetEnabled: false).width, 220)
+        XCTAssertEqual(CapsuleDisplayStyle.large.pillSize(desktopPetEnabled: true).width, 324)
+        XCTAssertEqual(CapsuleDisplayStyle.small.pillSize(desktopPetEnabled: true).width, 184)
+    }
+
     func testDesktopPetUsesLargerBodyWithoutScalingLevelBadge() {
         XCTAssertEqual(DesktopPetMetrics.petSize, 104)
         XCTAssertEqual(DesktopPetMetrics.windowSize.width, 160)

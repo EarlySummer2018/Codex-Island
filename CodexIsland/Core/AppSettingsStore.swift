@@ -7,6 +7,8 @@ enum CapsuleDisplayStyle: String, CaseIterable, Codable, Hashable {
     case large
     case small
 
+    private static let desktopPetCapsuleWidthReduction: CGFloat = 36
+
     var pillSize: CGSize {
         switch self {
         case .large:
@@ -14,6 +16,17 @@ enum CapsuleDisplayStyle: String, CaseIterable, Codable, Hashable {
         case .small:
             return CGSize(width: 220, height: 34)
         }
+    }
+
+    func pillSize(desktopPetEnabled: Bool) -> CGSize {
+        guard desktopPetEnabled else {
+            return pillSize
+        }
+
+        return CGSize(
+            width: max(pillSize.width - Self.desktopPetCapsuleWidthReduction, pillSize.height),
+            height: pillSize.height
+        )
     }
 }
 
