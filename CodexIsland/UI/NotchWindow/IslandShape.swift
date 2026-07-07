@@ -8,7 +8,6 @@ enum IslandShape: Equatable {
     static let topGap: CGFloat = 6
     static let fallbackCompactSize = CGSize(width: 120, height: 34)
     static let pillSize = CGSize(width: 360, height: 34)
-    static let smallPillSize = CGSize(width: 220, height: 34)
     static let expandedSize = CGSize(width: 440, height: 290)
 
     static let capsuleCornerRadius: CGFloat = fallbackCompactSize.height / 2

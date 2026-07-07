@@ -84,15 +84,22 @@ struct TokenInfoRow: View {
     }
 
     private var smallRow: some View {
-        HStack {
+        HStack(spacing: 4) {
+            TokenPill(
+                label: todayLabel,
+                value: store.todayTotalTokens,
+                color: TokenColors.today,
+                width: 40
+            )
+
             TokenPill(
                 label: settings.text(.total),
                 value: store.totalTokens,
                 color: TokenColors.total,
-                width: 132,
+                width: 48,
                 alignment: .trailing
             )
         }
-        .frame(width: 132, height: 28)
+        .frame(width: 92, height: 28)
     }
 }

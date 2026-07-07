@@ -47,6 +47,13 @@ async fn main() -> Result<()> {
     ipc_server.publish(&global_token_snapshot);
     info!("DailyTokenUsageSnapshot: {:?}", daily_token_snapshot);
     ipc_server.publish(&daily_token_snapshot);
+    // Replay each session's latest TokenSnapshot into the IPC replay cache so clients
+    // connecting after startup see current per-session token totals immediately, instead
+    // of all zeros until the next live codex turn repopulates the cache.
+    for snapshot in &token_usage_aggregators.latest_snapshots {
+        info!("SeededTokenSnapshot: {:?}", snapshot);
+        ipc_server.publish(snapshot);
+    }
 
     let mut token_parser = parser::token_parser::TokenParser::new();
     let mut state_parser = parser::state_parser::StateParser::new();

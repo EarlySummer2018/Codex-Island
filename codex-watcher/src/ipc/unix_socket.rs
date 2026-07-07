@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use serde::Serialize;
 use serde_json::Value;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use tokio::io::AsyncWriteExt;
@@ -17,7 +18,13 @@ pub struct IpcServer {
 #[derive(Debug, Default)]
 struct ReplayCache {
     state: Option<String>,
-    token: Option<String>,
+    /// Latest per-session `TokenSnapshot`, keyed by `session_id`. Kept as a map rather
+    /// than a single slot so a freshly connected IPC client receives every session's
+    /// current token frame from the replay cache, not just whichever one happened to be
+    /// published last. Without this, the capsule shows all zeros at startup until the
+    /// user asks codex another question and a live token_count event repopulates the
+    /// single-slot cache.
+    tokens: HashMap<String, String>,
     global_token: Option<String>,
     daily_token: Option<String>,
 }
@@ -39,7 +46,10 @@ impl ReplayCache {
         }
 
         if value.get("total_input").is_some() && value.get("delta_output").is_some() {
-            self.token = Some(message.to_string());
+            if let Some(session_id) = value.get("session_id").and_then(|value| value.as_str()) {
+                self.tokens
+                    .insert(session_id.to_string(), message.to_string());
+            }
             return;
         }
 
@@ -56,9 +66,7 @@ impl ReplayCache {
         if let Some(daily_token) = &self.daily_token {
             messages.push(daily_token.clone());
         }
-        if let Some(token) = &self.token {
-            messages.push(token.clone());
-        }
+        messages.extend(self.tokens.values().cloned());
         if let Some(state) = &self.state {
             messages.push(state.clone());
         }
@@ -179,5 +187,39 @@ mod tests {
         assert!(messages[1].contains(r#""type":"daily_token_usage""#));
         assert!(messages[2].contains(r#""delta_output":7"#));
         assert!(messages[3].contains(r#""state":"streaming""#));
+    }
+
+    #[test]
+    fn replay_cache_keeps_latest_token_per_session() {
+        let mut cache = ReplayCache::default();
+
+        // Two distinct sessions: each must be retained independently so a freshly
+        // connected client receives both sessions' current token frames.
+        cache.update(
+            r#"{"session_id":"session-a","session_file":"/tmp/a.jsonl","delta_input":0,"delta_output":0,"total_input":80,"total_output":7,"timestamp":"2026-06-28T08:00:00Z","turn_index":0}"#,
+        );
+        cache.update(
+            r#"{"session_id":"session-b","session_file":"/tmp/b.jsonl","delta_input":0,"delta_output":0,"total_input":200,"total_output":30,"timestamp":"2026-06-28T09:00:00Z","turn_index":0}"#,
+        );
+        // A later frame for session-a replaces only the session-a slot, leaving
+        // session-b intact.
+        cache.update(
+            r#"{"session_id":"session-a","session_file":"/tmp/a.jsonl","delta_input":0,"delta_output":0,"total_input":150,"total_output":25,"timestamp":"2026-06-28T08:30:00Z","turn_index":0}"#,
+        );
+
+        let messages = cache.messages();
+
+        assert_eq!(messages.len(), 2);
+        let session_a = messages
+            .iter()
+            .find(|message| message.contains(r#""session_id":"session-a""#))
+            .expect("session-a retained");
+        let session_b = messages
+            .iter()
+            .find(|message| message.contains(r#""session_id":"session-b""#))
+            .expect("session-b retained");
+        // session-a holds the latest (superseding) totals, not the earlier row.
+        assert!(session_a.contains(r#""total_input":150"#));
+        assert!(session_b.contains(r#""total_input":200"#));
     }
 }

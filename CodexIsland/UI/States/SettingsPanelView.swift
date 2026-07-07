@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct SettingsPanelView: View {
@@ -33,6 +34,7 @@ struct SettingsPanelView: View {
 
                 HStack(spacing: 8) {
                     capsuleStyleControl
+                    expansionTriggerControl
                     languageControl
                 }
 
@@ -157,6 +159,26 @@ struct SettingsPanelView: View {
         }
     }
 
+    private var expansionTriggerControl: some View {
+        settingControl(expansionTitle) {
+            HStack(spacing: 4) {
+                segmentButton(
+                    hoverTitle,
+                    isSelected: settings.capsuleExpansionTrigger == .hover
+                ) {
+                    settings.capsuleExpansionTrigger = .hover
+                }
+
+                segmentButton(
+                    clickTitle,
+                    isSelected: settings.capsuleExpansionTrigger == .click
+                ) {
+                    settings.capsuleExpansionTrigger = .click
+                }
+            }
+        }
+    }
+
     private var languageControl: some View {
         settingControl(settings.text(.language)) {
             HStack(spacing: 4) {
@@ -264,6 +286,9 @@ struct SettingsPanelView: View {
             actionButton(settings.text(.resetCapsulePosition), systemImage: "location", color: PanelPalette.magenta) {
                 NotchIslandPanel.shared.resetPosition()
             }
+            actionButton(settings.text(.quit), systemImage: "power", color: PanelPalette.magenta) {
+                NSApp.terminate(nil)
+            }
         }
     }
 
@@ -358,6 +383,33 @@ struct SettingsPanelView: View {
             return "桌宠"
         case .english:
             return "Desktop Pet"
+        }
+    }
+
+    private var expansionTitle: String {
+        switch settings.language {
+        case .chinese:
+            return "展开"
+        case .english:
+            return "Expand"
+        }
+    }
+
+    private var hoverTitle: String {
+        switch settings.language {
+        case .chinese:
+            return "悬浮"
+        case .english:
+            return "Hover"
+        }
+    }
+
+    private var clickTitle: String {
+        switch settings.language {
+        case .chinese:
+            return "点击"
+        case .english:
+            return "Click"
         }
     }
 

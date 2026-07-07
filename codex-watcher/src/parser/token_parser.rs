@@ -178,6 +178,67 @@ impl TokenParser {
         Some(snapshot)
     }
 
+    /// Reconstruct a session's latest `TokenSnapshot` purely from the last `token_count`
+    /// payload observed in its history file, without touching the live accumulator or
+    /// turn-index state. Deltas are zeroed because the rebuild represents an existing
+    /// cumulative total rather than a new incremental step, and `turn_index` is set to 0
+    /// to mark it as a seeded baseline rather than a live turn.
+    ///
+    /// Used at watcher startup so newly connected IPC clients receive a current
+    /// per-session token frame via the replay cache instead of seeing all zeros until
+    /// the next live codex turn.
+    pub fn snapshot_from_history(
+        session_file: &Path,
+        session_id: Option<&str>,
+        payload: &Value,
+        timestamp: DateTime<Utc>,
+    ) -> Option<TokenSnapshot> {
+        let input_tokens = token_count_value(payload, "input_tokens").unwrap_or(0);
+        let cached_input_tokens = token_count_value(payload, "cached_input_tokens").unwrap_or(0);
+        let output_tokens = token_count_value(payload, "output_tokens").unwrap_or(0);
+        let reasoning_tokens = token_count_value(payload, "reasoning_tokens").unwrap_or(0);
+
+        if input_tokens == 0
+            && cached_input_tokens == 0
+            && output_tokens == 0
+            && reasoning_tokens == 0
+        {
+            return None;
+        }
+
+        let context_used = context_used_tokens(payload).unwrap_or(input_tokens + output_tokens);
+        let cache_hit_rate = if input_tokens > 0 {
+            cached_input_tokens as f64 / input_tokens as f64
+        } else {
+            0.0
+        };
+        let file_key = session_file.to_string_lossy().to_string();
+        let resolved_session_id = session_id
+            .map(ToOwned::to_owned)
+            .or_else(|| session_id_from_path(session_file))
+            .unwrap_or_else(|| "unknown".to_string());
+
+        Some(TokenSnapshot {
+            session_id: resolved_session_id,
+            session_file: file_key,
+            delta_input: 0,
+            delta_cached_input: 0,
+            delta_uncached_input: 0,
+            delta_output: 0,
+            delta_reasoning: 0,
+            total_input: input_tokens,
+            total_cached_input: cached_input_tokens,
+            total_uncached_input: input_tokens.saturating_sub(cached_input_tokens),
+            total_output: output_tokens,
+            total_reasoning: reasoning_tokens,
+            context_used,
+            context_window: model_context_window(payload),
+            cache_hit_rate,
+            timestamp,
+            turn_index: 0,
+        })
+    }
+
     #[cfg(test)]
     pub fn clear_session(&mut self, session_file: &str) {
         self.accumulators.remove(session_file);

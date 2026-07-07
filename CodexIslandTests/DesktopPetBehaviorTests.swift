@@ -118,9 +118,9 @@ final class DesktopPetBehaviorTests: XCTestCase {
 
     func testCapsuleSizeShrinksWhenDesktopPetIsEnabled() {
         XCTAssertEqual(CapsuleDisplayStyle.large.pillSize(desktopPetEnabled: false).width, 360)
-        XCTAssertEqual(CapsuleDisplayStyle.small.pillSize(desktopPetEnabled: false).width, 220)
+        XCTAssertEqual(CapsuleDisplayStyle.small.pillSize(desktopPetEnabled: false).width, 148)
         XCTAssertEqual(CapsuleDisplayStyle.large.pillSize(desktopPetEnabled: true).width, 324)
-        XCTAssertEqual(CapsuleDisplayStyle.small.pillSize(desktopPetEnabled: true).width, 184)
+        XCTAssertEqual(CapsuleDisplayStyle.small.pillSize(desktopPetEnabled: true).width, 112)
     }
 
     func testDesktopPetUsesLargerBodyWithoutScalingLevelBadge() {
@@ -220,6 +220,14 @@ final class DesktopPetBehaviorTests: XCTestCase {
             ),
             .drag
         )
+    }
+
+    func testIslandPressGestureSeparatesClickFromDrag() {
+        let start = CGPoint(x: 40, y: 40)
+
+        XCTAssertTrue(IslandPressGesture.isClick(from: start, to: CGPoint(x: 42, y: 43)))
+        XCTAssertFalse(IslandPressGesture.isClick(from: start, to: CGPoint(x: 45, y: 40)))
+        XCTAssertTrue(IslandPressGesture.isDrag(from: start, to: CGPoint(x: 45, y: 40)))
     }
 
     func testMovingAnimationsAlwaysUseStrideFrames() {
