@@ -33,8 +33,9 @@ enum DesktopPetMetrics {
     static let maxRoamDistance: CGFloat = 190
     static let singleClickDodgeDistance: CGFloat = 190
     static let idleSpeed: CGFloat = 70
-    static let workingSpeed: CGFloat = 60
-    static let streamingSpeed: CGFloat = 115
+    static let commandSpeed: CGFloat = 60
+    static let replySpeed: CGFloat = 115
+    static let reviewSpeed: CGFloat = 0
     static let launchSpeed: CGFloat = 120
     static let returnSpeed: CGFloat = 120
     static let capsuleAnchorStableTolerance: CGFloat = 2
@@ -43,30 +44,59 @@ enum DesktopPetMetrics {
 }
 
 enum DesktopPetBehaviorEngine {
-    static func shouldPauseRoaming(for state: CodexSessionState) -> Bool {
-        state == .thinking || state == .awaitingInput || state == .error
-    }
-
-    static func roamSpeed(for state: CodexSessionState) -> CGFloat {
+    static func shouldPauseRoaming(
+        for state: CodexSessionState,
+        activity: CodexActivityKind = .none
+    ) -> Bool {
         switch state {
-        case .idle:
-            return DesktopPetMetrics.idleSpeed
-        case .thinking:
-            return 0
-        case .working:
-            return DesktopPetMetrics.workingSpeed
-        case .streaming:
-            return DesktopPetMetrics.streamingSpeed
-        case .awaitingInput, .error:
-            return 0
+        case .running:
+            return activity == .reasoning
+        case .waitingForInput, .readyForReview, .error:
+            return true
+        case .notLoaded, .idle:
+            return false
         }
     }
 
-    static func movingAnimation(for state: CodexSessionState, level: Int = 0) -> PetAnimation {
+    static func roamSpeed(
+        for state: CodexSessionState,
+        activity: CodexActivityKind = .none
+    ) -> CGFloat {
         switch state {
-        case .streaming:
-            return .outputBurst
-        case .idle, .thinking, .working, .awaitingInput, .error:
+        case .notLoaded, .idle:
+            return DesktopPetMetrics.idleSpeed
+        case .running:
+            switch activity {
+            case .reasoning:
+                return 0
+            case .commandExecution:
+                return DesktopPetMetrics.commandSpeed
+            case .fileChange, .agentMessage:
+                return DesktopPetMetrics.replySpeed
+            case .webSearch:
+                return DesktopPetMetrics.idleSpeed
+            case .none:
+                return DesktopPetMetrics.commandSpeed
+            }
+        case .waitingForInput, .readyForReview, .error:
+            return DesktopPetMetrics.reviewSpeed
+        }
+    }
+
+    static func movingAnimation(
+        for state: CodexSessionState,
+        activity: CodexActivityKind = .none,
+        level: Int = 0
+    ) -> PetAnimation {
+        switch state {
+        case .running:
+            switch activity {
+            case .fileChange, .agentMessage:
+                return .outputBurst
+            case .none, .reasoning, .commandExecution, .webSearch:
+                return .talkWalk
+            }
+        case .notLoaded, .idle, .waitingForInput, .readyForReview, .error:
             return .talkWalk
         }
     }

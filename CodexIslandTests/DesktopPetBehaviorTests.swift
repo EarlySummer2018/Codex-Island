@@ -175,7 +175,6 @@ final class DesktopPetBehaviorTests: XCTestCase {
             position: position
         )
 
-        XCTAssertLessThan(position.xRatio, 0)
         XCTAssertGreaterThan(position.yRatio, 1)
         XCTAssertEqual(restoredOrigin.x, offscreenFrame.minX, accuracy: 0.001)
         XCTAssertEqual(restoredOrigin.y, offscreenFrame.minY, accuracy: 0.001)
@@ -230,11 +229,47 @@ final class DesktopPetBehaviorTests: XCTestCase {
         XCTAssertTrue(IslandPressGesture.isDrag(from: start, to: CGPoint(x: 45, y: 40)))
     }
 
+    func testCapsuleSavedPositionPreservesCenterAcrossSizeChanges() {
+        let usableFrame = CGRect(x: 0, y: 100, width: 1000, height: 700)
+        let expandedFrame = CGRect(x: 250, y: 380, width: 440, height: 290)
+        let compactSize = CGSize(width: 360, height: 34)
+
+        let position = IslandPositionGeometry.position(
+            for: expandedFrame,
+            usableFrame: usableFrame
+        )
+        let restoredOrigin = IslandPositionGeometry.origin(
+            for: compactSize,
+            usableFrame: usableFrame,
+            position: position
+        )
+
+        XCTAssertEqual(
+            restoredOrigin.x + compactSize.width / 2,
+            expandedFrame.midX,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            restoredOrigin.y + compactSize.height / 2,
+            expandedFrame.midY,
+            accuracy: 0.001
+        )
+    }
+
     func testMovingAnimationsAlwaysUseStrideFrames() {
         XCTAssertEqual(DesktopPetBehaviorEngine.movingAnimation(for: .idle), .talkWalk)
-        XCTAssertEqual(DesktopPetBehaviorEngine.movingAnimation(for: .thinking), .talkWalk)
-        XCTAssertEqual(DesktopPetBehaviorEngine.movingAnimation(for: .working), .talkWalk)
-        XCTAssertEqual(DesktopPetBehaviorEngine.movingAnimation(for: .streaming), .outputBurst)
+        XCTAssertEqual(
+            DesktopPetBehaviorEngine.movingAnimation(for: .running, activity: .commandExecution),
+            .talkWalk
+        )
+        XCTAssertEqual(
+            DesktopPetBehaviorEngine.movingAnimation(for: .running, activity: .webSearch),
+            .talkWalk
+        )
+        XCTAssertEqual(
+            DesktopPetBehaviorEngine.movingAnimation(for: .running, activity: .fileChange),
+            .outputBurst
+        )
     }
 
     func testFurinaAtlasGeometryMatchesCodexPetsContract() {
@@ -275,8 +310,14 @@ final class DesktopPetBehaviorTests: XCTestCase {
     func testPetAnimationsDoNotUseLevelSpecificBodyShapes() {
         XCTAssertEqual(PetAnimation.from(state: .idle, level: 0), .idleBreathe)
         XCTAssertEqual(PetAnimation.from(state: .idle, level: 100), .idleBreathe)
-        XCTAssertEqual(PetAnimation.from(state: .thinking, level: 0), .bubbleThink)
-        XCTAssertEqual(PetAnimation.from(state: .thinking, level: 100), .bubbleThink)
+        XCTAssertEqual(
+            PetAnimation.from(state: .running, activityKind: .reasoning, level: 0),
+            .bubbleThink
+        )
+        XCTAssertEqual(
+            PetAnimation.from(state: .running, activityKind: .reasoning, level: 100),
+            .bubbleThink
+        )
         XCTAssertEqual(PetAnimation.feedAnimation(for: 0), .eatToken)
         XCTAssertEqual(PetAnimation.feedAnimation(for: 100), .eatToken)
         XCTAssertEqual(PetAnimation.idleBreakAnimation(for: 0), .idleStretch)
@@ -306,26 +347,33 @@ final class DesktopPetBehaviorTests: XCTestCase {
 
     func testRoamingSpeedsFollowStatePriority() {
         XCTAssertGreaterThan(
-            DesktopPetBehaviorEngine.roamSpeed(for: .streaming),
+            DesktopPetBehaviorEngine.roamSpeed(for: .running, activity: .agentMessage),
             DesktopPetBehaviorEngine.roamSpeed(for: .idle)
         )
         XCTAssertGreaterThan(
             DesktopPetBehaviorEngine.roamSpeed(for: .idle),
-            DesktopPetBehaviorEngine.roamSpeed(for: .working)
+            DesktopPetBehaviorEngine.roamSpeed(for: .running, activity: .commandExecution)
         )
         XCTAssertGreaterThan(
-            DesktopPetBehaviorEngine.roamSpeed(for: .working),
-            DesktopPetBehaviorEngine.roamSpeed(for: .thinking)
+            DesktopPetBehaviorEngine.roamSpeed(for: .running, activity: .commandExecution),
+            DesktopPetBehaviorEngine.roamSpeed(for: .running, activity: .reasoning)
         )
-        XCTAssertEqual(DesktopPetBehaviorEngine.roamSpeed(for: .thinking), 0)
+        XCTAssertEqual(DesktopPetBehaviorEngine.roamSpeed(for: .running, activity: .reasoning), 0)
     }
 
-    func testThinkingAwaitingAndErrorPauseFreeRoaming() {
+    func testReasoningAwaitingReviewAndErrorPauseFreeRoaming() {
         XCTAssertFalse(DesktopPetBehaviorEngine.shouldPauseRoaming(for: .idle))
-        XCTAssertFalse(DesktopPetBehaviorEngine.shouldPauseRoaming(for: .working))
-        XCTAssertFalse(DesktopPetBehaviorEngine.shouldPauseRoaming(for: .streaming))
-        XCTAssertTrue(DesktopPetBehaviorEngine.shouldPauseRoaming(for: .thinking))
-        XCTAssertTrue(DesktopPetBehaviorEngine.shouldPauseRoaming(for: .awaitingInput))
+        XCTAssertFalse(
+            DesktopPetBehaviorEngine.shouldPauseRoaming(for: .running, activity: .commandExecution)
+        )
+        XCTAssertFalse(
+            DesktopPetBehaviorEngine.shouldPauseRoaming(for: .running, activity: .agentMessage)
+        )
+        XCTAssertTrue(
+            DesktopPetBehaviorEngine.shouldPauseRoaming(for: .running, activity: .reasoning)
+        )
+        XCTAssertTrue(DesktopPetBehaviorEngine.shouldPauseRoaming(for: .waitingForInput))
+        XCTAssertTrue(DesktopPetBehaviorEngine.shouldPauseRoaming(for: .readyForReview))
         XCTAssertTrue(DesktopPetBehaviorEngine.shouldPauseRoaming(for: .error))
     }
 
@@ -409,6 +457,23 @@ final class DesktopPetBehaviorTests: XCTestCase {
             XCTAssertEqual(snapshot.contextUsagePercent, "50.0%")
         default:
             XCTFail("Expected token snapshot")
+        }
+    }
+
+    func testSessionStateDecoderRecognizesRuntimeActivityAndTurn() throws {
+        let line = """
+        {"session_id":"thread-1","state":"running","activity_kind":"file_change","turn_state":"in_progress","source":"app_server","timestamp":"2026-07-01T08:00:00Z","await_reason":null}
+        """
+
+        switch IpcEventDecoder().decode(line: line) {
+        case .state(let event):
+            XCTAssertEqual(event.sessionId, "thread-1")
+            XCTAssertEqual(event.state, .running)
+            XCTAssertEqual(event.activityKind, .fileChange)
+            XCTAssertEqual(event.turnState, .inProgress)
+            XCTAssertEqual(event.source, .appServer)
+        default:
+            XCTFail("Expected session state event")
         }
     }
 

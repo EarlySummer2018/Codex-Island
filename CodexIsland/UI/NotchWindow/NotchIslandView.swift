@@ -81,7 +81,11 @@ struct NotchIslandView: View {
     }
 
     private var petAnimation: PetAnimation {
-        PetAnimation.from(state: eventBus.sessionState, level: evolutionStore.level)
+        PetAnimation.from(
+            state: eventBus.sessionState,
+            activityKind: eventBus.activityKind,
+            level: evolutionStore.level
+        )
     }
 
     private var cornerRadius: CGFloat {
@@ -89,6 +93,11 @@ struct NotchIslandView: View {
     }
 
     private func shape(for state: CodexSessionState) -> IslandShape {
-        .pill
+        switch state {
+        case .notLoaded, .idle, .error:
+            return .compact
+        case .running, .waitingForInput, .readyForReview:
+            return .pill
+        }
     }
 }

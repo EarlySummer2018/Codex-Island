@@ -65,10 +65,10 @@ final class DesktopPetController: ObservableObject {
             }
             .store(in: &cancellables)
 
-        eventBus.$sessionState
+        Publishers.CombineLatest(eventBus.$sessionState, eventBus.$activityKind)
             .dropFirst()
-            .sink { [weak self] state in
-                self?.reactToSessionState(state)
+            .sink { [weak self] state, activity in
+                self?.reactToSessionChange(state: state, activity: activity)
             }
             .store(in: &cancellables)
 
@@ -190,10 +190,11 @@ final class DesktopPetController: ObservableObject {
             windowSize: windowSize
         )
         let state = eventBus.sessionState
+        let activity = eventBus.activityKind
 
         phase = .launching
         action = .strolling
-        animationName = movingAnimation(for: state)
+        animationName = movingAnimation(for: state, activity: activity)
         presentationScale = DesktopPetMetrics.capsulePresentationScale
         panel.setFrame(NSRect(origin: startOrigin, size: windowSize), display: true)
         panel.orderFrontRegardless()
@@ -223,7 +224,7 @@ final class DesktopPetController: ObservableObject {
                 duration: launchDuration,
                 phase: .launching,
                 action: .strolling,
-                animation: self.movingAnimation(for: state)
+                animation: self.movingAnimation(for: state, activity: activity)
             ) { [weak self] in
                 self?.landAndResume()
             }
@@ -261,13 +262,14 @@ final class DesktopPetController: ObservableObject {
         panel.orderFrontRegardless()
 
         let state = eventBus.sessionState
+        let activity = eventBus.activityKind
         phase = .roaming
         action = .pausing
-        animationName = restingAnimation(for: state)
+        animationName = restingAnimation(for: state, activity: activity)
         presentationScale = DesktopPetMetrics.desktopPresentationScale
 
-        if DesktopPetBehaviorEngine.shouldPauseRoaming(for: state) {
-            applyStationaryState(state)
+        if DesktopPetBehaviorEngine.shouldPauseRoaming(for: state, activity: activity) {
+            applyStationaryState(state, activity: activity)
         } else {
             scheduleNextRoam(delay: 0.35)
         }
@@ -396,8 +398,9 @@ final class DesktopPetController: ObservableObject {
         }
 
         let state = eventBus.sessionState
-        if DesktopPetBehaviorEngine.shouldPauseRoaming(for: state) {
-            applyStationaryState(state)
+        let activity = eventBus.activityKind
+        if DesktopPetBehaviorEngine.shouldPauseRoaming(for: state, activity: activity) {
+            applyStationaryState(state, activity: activity)
             return
         }
 
@@ -412,7 +415,7 @@ final class DesktopPetController: ObservableObject {
             duration: duration(to: target, speed: roamSpeed, minimum: 1.0, maximum: 4.8),
             phase: .roaming,
             action: .strolling,
-            animation: movingAnimation(for: state)
+            animation: movingAnimation(for: state, activity: activity)
         ) { [weak self] in
             guard let self, self.phase == .roaming else {
                 return
@@ -443,29 +446,39 @@ final class DesktopPetController: ObservableObject {
 
         phase = .roaming
         action = .pausing
-        applyRestingState(eventBus.sessionState)
-        if !DesktopPetBehaviorEngine.shouldPauseRoaming(for: eventBus.sessionState) {
+        applyRestingState(eventBus.sessionState, activity: eventBus.activityKind)
+        if !DesktopPetBehaviorEngine.shouldPauseRoaming(
+            for: eventBus.sessionState,
+            activity: eventBus.activityKind
+        ) {
             scheduleNextRoam(delay: nextRoamDelay)
         }
     }
 
-    private func reactToSessionState(_ state: CodexSessionState) {
+    private func reactToSessionChange(
+        state: CodexSessionState,
+        activity: CodexActivityKind
+    ) {
         guard settings.isDesktopPetEnabled,
               phase == .roaming else {
             return
         }
 
         cancelScheduledWork()
-        if DesktopPetBehaviorEngine.shouldPauseRoaming(for: state) {
-            applyStationaryState(state, shouldFreezeCurrentMovement: action == .strolling)
+        if DesktopPetBehaviorEngine.shouldPauseRoaming(for: state, activity: activity) {
+            applyStationaryState(
+                state,
+                activity: activity,
+                shouldFreezeCurrentMovement: action == .strolling
+            )
             return
         }
 
         if action == .strolling {
-            animationName = movingAnimation(for: state)
+            animationName = movingAnimation(for: state, activity: activity)
         } else {
             action = .pausing
-            animationName = restingAnimation(for: state)
+            animationName = restingAnimation(for: state, activity: activity)
             scheduleNextRoam(delay: nextRoamDelay)
         }
     }
@@ -477,76 +490,96 @@ final class DesktopPetController: ObservableObject {
         }
 
         let state = eventBus.sessionState
-        let selectedAction = microAction(for: state)
+        let activity = eventBus.activityKind
+        let selectedAction = microAction(for: state, activity: activity)
         action = selectedAction
-        animationName = animation(for: selectedAction, state: state)
-        scheduleNextRoam(delay: delayOverride ?? delay(for: selectedAction, state: state))
+        animationName = animation(for: selectedAction, state: state, activity: activity)
+        scheduleNextRoam(
+            delay: delayOverride ?? delay(for: selectedAction, state: state, activity: activity)
+        )
     }
 
-    private func applyRestingState(_ state: CodexSessionState) {
-        if DesktopPetBehaviorEngine.shouldPauseRoaming(for: state) && state == .awaitingInput {
+    private func applyRestingState(
+        _ state: CodexSessionState,
+        activity: CodexActivityKind
+    ) {
+        if DesktopPetBehaviorEngine.shouldPauseRoaming(for: state, activity: activity)
+            && state == .waitingForInput {
             action = .hopping
         } else {
             action = .pausing
         }
-        animationName = restingAnimation(for: state)
+        animationName = restingAnimation(for: state, activity: activity)
     }
 
     private func applyStationaryState(
         _ state: CodexSessionState,
+        activity: CodexActivityKind,
         shouldFreezeCurrentMovement: Bool = false
     ) {
         cancelScheduledWork()
         if shouldFreezeCurrentMovement {
             freezeCurrentPanelMovement()
         }
-        applyRestingState(state)
+        applyRestingState(state, activity: activity)
     }
 
-    private func microAction(for state: CodexSessionState) -> DesktopPetAction {
+    private func microAction(
+        for state: CodexSessionState,
+        activity: CodexActivityKind
+    ) -> DesktopPetAction {
         switch state {
-        case .idle:
+        case .notLoaded, .idle:
             return [.pausing, .lookingAround, .hopping].randomElement() ?? .pausing
-        case .thinking, .working:
-            return [.pausing, .lookingAround].randomElement() ?? .lookingAround
-        case .streaming:
-            return [.pausing, .hopping].randomElement() ?? .pausing
-        case .awaitingInput:
+        case .running:
+            switch activity {
+            case .reasoning:
+                return [.pausing, .lookingAround].randomElement() ?? .lookingAround
+            case .fileChange, .agentMessage:
+                return [.pausing, .hopping].randomElement() ?? .pausing
+            case .none, .commandExecution, .webSearch:
+                return [.pausing, .lookingAround].randomElement() ?? .lookingAround
+            }
+        case .waitingForInput:
             return .hopping
-        case .error:
+        case .readyForReview, .error:
             return .pausing
         }
     }
 
     private func animation(
         for action: DesktopPetAction,
-        state: CodexSessionState
+        state: CodexSessionState,
+        activity: CodexActivityKind
     ) -> PetAnimation {
         switch action {
         case .hopping:
-            return state == .awaitingInput ? restingAnimation(for: state) : .happyBounce
+            return state == .waitingForInput ? restingAnimation(for: state, activity: activity) : .happyBounce
         case .lookingAround:
-            return state == .thinking || state == .working ? restingAnimation(for: state) : .idleStretch
+            return DesktopPetBehaviorEngine.shouldPauseRoaming(for: state, activity: activity)
+                ? restingAnimation(for: state, activity: activity)
+                : .idleStretch
         case .pausing:
-            return restingAnimation(for: state)
+            return restingAnimation(for: state, activity: activity)
         case .landing:
             return .landBounce
         case .strolling, .dodging, .returning:
-            return movingAnimation(for: state)
+            return movingAnimation(for: state, activity: activity)
         case .dragging:
             return .dragHover
         case .idle:
-            return restingAnimation(for: state)
+            return restingAnimation(for: state, activity: activity)
         }
     }
 
     private func delay(
         for action: DesktopPetAction,
-        state: CodexSessionState
+        state: CodexSessionState,
+        activity: CodexActivityKind
     ) -> TimeInterval {
         switch action {
         case .hopping:
-            return state == .streaming ? 1.2 : 1.8
+            return state == .running && (activity == .fileChange || activity == .agentMessage) ? 1.2 : 1.8
         case .lookingAround:
             return 2.0
         case .pausing:
@@ -692,29 +725,47 @@ final class DesktopPetController: ObservableObject {
     }
 
     private var roamSpeed: CGFloat {
-        DesktopPetBehaviorEngine.roamSpeed(for: eventBus.sessionState)
+        DesktopPetBehaviorEngine.roamSpeed(
+            for: eventBus.sessionState,
+            activity: eventBus.activityKind
+        )
     }
 
     private var nextRoamDelay: TimeInterval {
         switch eventBus.sessionState {
-        case .idle:
+        case .notLoaded, .idle:
             return Double.random(in: 2.2...5.8)
-        case .thinking, .working:
-            return Double.random(in: 1.5...3.2)
-        case .streaming:
-            return Double.random(in: 0.9...2.0)
-        case .awaitingInput:
+        case .running:
+            switch eventBus.activityKind {
+            case .reasoning:
+                return Double.random(in: 1.5...3.2)
+            case .fileChange, .agentMessage:
+                return Double.random(in: 0.9...2.0)
+            case .none, .commandExecution:
+                return Double.random(in: 1.5...3.2)
+            case .webSearch:
+                return Double.random(in: 1.4...2.8)
+            }
+        case .waitingForInput:
             return Double.random(in: 2.0...3.6)
+        case .readyForReview:
+            return 2.2
         case .error:
             return 2.4
         }
     }
 
-    private func restingAnimation(for state: CodexSessionState) -> PetAnimation {
-        PetAnimation.from(state: state)
+    private func restingAnimation(
+        for state: CodexSessionState,
+        activity: CodexActivityKind
+    ) -> PetAnimation {
+        PetAnimation.from(state: state, activityKind: activity)
     }
 
-    private func movingAnimation(for state: CodexSessionState) -> PetAnimation {
-        DesktopPetBehaviorEngine.movingAnimation(for: state)
+    private func movingAnimation(
+        for state: CodexSessionState,
+        activity: CodexActivityKind
+    ) -> PetAnimation {
+        DesktopPetBehaviorEngine.movingAnimation(for: state, activity: activity)
     }
 }

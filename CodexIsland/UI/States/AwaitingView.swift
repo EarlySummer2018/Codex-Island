@@ -9,7 +9,10 @@ struct AwaitingView: View {
     var body: some View {
         HStack(spacing: 8) {
             PixelPetView(
-                animationName: PetAnimation.from(state: .awaitingInput, level: evolutionStore.level),
+                animationName: PetAnimation.from(
+                    state: .waitingForInput,
+                    level: evolutionStore.level
+                ),
                 size: 22,
                 form: evolutionStore.currentForm,
                 level: evolutionStore.level,
@@ -21,7 +24,7 @@ struct AwaitingView: View {
                 .overlay(Color(red: 0.94, green: 0.27, blue: 0.27).opacity(0.45))
 
             VStack(alignment: .leading, spacing: 1) {
-                Text("等待您的回复")
+                Text("等待输入")
                     .font(.system(size: 12, weight: .semibold, design: .rounded))
                     .foregroundStyle(Color(red: 0.94, green: 0.27, blue: 0.27))
                     .lineLimit(1)

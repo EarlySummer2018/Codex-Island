@@ -7,7 +7,7 @@ Codex Island 是一个 macOS 顶部胶囊 companion app：它监听本机 Codex 
 ## 功能
 
 - 顶部常驻胶囊，展示当前 active session 的 `IN` / `CACHE` / `OUT` / `TOTAL`。
-- 像素宠物跟随 Codex 状态变化：空闲、思考、输出、等待用户、错误。
+- 像素宠物跟随官方 Codex 运行态：空闲、运行中、等待输入、可供审阅、错误，并用次级活动提示区分思考、运行命令、编辑文件、网页检索和生成回复。
 - 宠物进化基于本机所有 Codex sessions 的全局累计 token，不是单会话 token。
 - 胶囊支持长按拖动，并按屏幕保存位置。
 - 顶部状态栏菜单支持切换大/小胶囊、切换中英文、打开缓存目录、打开 Codex、检查更新、显示隐藏胶囊和退出。
@@ -59,7 +59,7 @@ Unix socket IPC
 CodexIsland.app (Swift/AppKit/SwiftUI)
 ```
 
-Rust sidecar 监听 `~/.codex/sessions/**/*.jsonl`，对事件做脱敏，输出当前会话 token 快照，聚合全局 token 使用量，并通过 Unix Socket 广播 JSON 行。Swift 主 App 负责渲染胶囊、状态栏菜单、token 数字、宠物动画和等待用户输入提醒。
+Rust sidecar 优先消费 Codex App-Server 的运行态和 item 事件，必要时再回退到脱敏后的 `~/.codex/sessions/**/*.jsonl` 元数据，输出当前会话 token 快照，聚合全局 token 使用量，并通过 Unix Socket 广播 JSON 行。Swift 主 App 负责渲染胶囊、状态栏菜单、token 数字、宠物动画和等待输入提醒。
 
 ## 隐私边界
 

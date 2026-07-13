@@ -5,7 +5,9 @@ import Foundation
 final class EventBus: ObservableObject {
     static let shared = EventBus()
 
-    @Published private(set) var sessionState: CodexSessionState = .idle
+    @Published private(set) var sessionState: CodexSessionState = .notLoaded
+    @Published private(set) var activityKind: CodexActivityKind = .none
+    @Published private(set) var turnState: CodexTurnState?
     @Published private(set) var awaitReason: AwaitReason?
     @Published private(set) var latestToken: TokenSnapshot?
     @Published private(set) var activeSessionId: String?
@@ -13,6 +15,8 @@ final class EventBus: ObservableObject {
     private let minimumActiveDisplayDuration: TimeInterval = 1.4
     private let maxTrackedSessions = 32
     private var sessionStates: [String: CodexSessionState] = [:]
+    private var sessionActivities: [String: CodexActivityKind] = [:]
+    private var sessionTurnStates: [String: CodexTurnState] = [:]
     private var sessionAwaitReasons: [String: AwaitReason] = [:]
     private var sessionTokens: [String: TokenSnapshot] = [:]
     private var sessionLastActivity: [String: Date] = [:]
@@ -20,15 +24,16 @@ final class EventBus: ObservableObject {
     private var pendingRestTasks: [String: Task<Void, Never>] = [:]
 
     var isActive: Bool {
-        sessionState != .idle && sessionState != .error
-    }
-
-    var isStreaming: Bool {
-        sessionState == .streaming
+        switch sessionState {
+        case .running, .waitingForInput, .readyForReview:
+            return true
+        case .notLoaded, .idle, .error:
+            return false
+        }
     }
 
     var isAwaitingInput: Bool {
-        sessionState == .awaitingInput
+        sessionState == .waitingForInput
     }
 
     func handleStateEvent(_ event: SessionStateEvent) {
@@ -45,11 +50,18 @@ final class EventBus: ObservableObject {
 
     private func applyStateEvent(_ event: SessionStateEvent) {
         sessionStates[event.sessionId] = event.state
+        sessionActivities[event.sessionId] = event.activityKind
         sessionLastActivity[event.sessionId] = event.timestamp
+
+        if let turnState = event.turnState {
+            sessionTurnStates[event.sessionId] = turnState
+        } else {
+            sessionTurnStates.removeValue(forKey: event.sessionId)
+        }
 
         if let awaitReason = event.awaitReason {
             sessionAwaitReasons[event.sessionId] = awaitReason
-        } else if event.state != .awaitingInput {
+        } else if event.state != .waitingForInput {
             sessionAwaitReasons.removeValue(forKey: event.sessionId)
         }
 
@@ -68,7 +80,7 @@ final class EventBus: ObservableObject {
     }
 
     private func shouldDelayRestingState(_ event: SessionStateEvent) -> Bool {
-        guard event.state == .idle,
+        guard event.state.isRestingState,
               activeSessionId == event.sessionId,
               let activeStateEnteredAt else {
             return false
@@ -119,13 +131,17 @@ final class EventBus: ObservableObject {
 
     private func applyActiveSession() {
         guard let activeSessionId else {
-            sessionState = .idle
+            sessionState = .notLoaded
+            activityKind = .none
+            turnState = nil
             awaitReason = nil
             latestToken = nil
             return
         }
 
-        sessionState = sessionStates[activeSessionId] ?? .idle
+        sessionState = sessionStates[activeSessionId] ?? .notLoaded
+        activityKind = sessionActivities[activeSessionId] ?? .none
+        turnState = sessionTurnStates[activeSessionId]
         awaitReason = sessionAwaitReasons[activeSessionId]
         latestToken = sessionTokens[activeSessionId]
         TokenStore.shared.showSession(activeSessionId, latest: sessionTokens[activeSessionId])
@@ -137,8 +153,8 @@ final class EventBus: ObservableObject {
             .union(sessionLastActivity.keys)
 
         return sessionIds.max { lhs, rhs in
-            let lhsState = sessionStates[lhs] ?? .idle
-            let rhsState = sessionStates[rhs] ?? .idle
+            let lhsState = sessionStates[lhs] ?? .notLoaded
+            let rhsState = sessionStates[rhs] ?? .notLoaded
 
             if lhsState.displayPriority != rhsState.displayPriority {
                 return lhsState.displayPriority < rhsState.displayPriority
@@ -155,7 +171,7 @@ final class EventBus: ObservableObject {
             return true
         }
 
-        return !(sessionStates[activeSessionId] ?? .idle).shouldPromoteToFront
+        return !(sessionStates[activeSessionId] ?? .notLoaded).shouldPromoteToFront
     }
 
     private func pruneTrackedSessions() {
@@ -175,6 +191,8 @@ final class EventBus: ObservableObject {
 
         for item in removable {
             sessionStates.removeValue(forKey: item.key)
+            sessionActivities.removeValue(forKey: item.key)
+            sessionTurnStates.removeValue(forKey: item.key)
             sessionAwaitReasons.removeValue(forKey: item.key)
             sessionTokens.removeValue(forKey: item.key)
             sessionLastActivity.removeValue(forKey: item.key)
@@ -182,32 +200,40 @@ final class EventBus: ObservableObject {
             pendingRestTasks.removeValue(forKey: item.key)
         }
     }
-
 }
 
 private extension CodexSessionState {
+    var isRestingState: Bool {
+        switch self {
+        case .notLoaded, .idle:
+            return true
+        case .running, .waitingForInput, .readyForReview, .error:
+            return false
+        }
+    }
+
     var shouldPromoteToFront: Bool {
         switch self {
-        case .thinking, .working, .streaming, .awaitingInput:
+        case .running, .waitingForInput, .readyForReview:
             return true
-        case .idle, .error:
+        case .notLoaded, .idle, .error:
             return false
         }
     }
 
     var displayPriority: Int {
         switch self {
-        case .awaitingInput:
+        case .waitingForInput:
+            return 5
+        case .readyForReview:
             return 4
-        case .working:
+        case .running:
             return 3
-        case .streaming:
-            return 3
-        case .thinking:
-            return 2
         case .error:
-            return 1
+            return 2
         case .idle:
+            return 1
+        case .notLoaded:
             return 0
         }
     }

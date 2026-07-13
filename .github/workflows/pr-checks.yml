@@ -1,0 +1,111 @@
+name: PR Checks
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "Optional pull request number to validate manually"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-checks-${{ github.event_name }}-${{ github.event.pull_request.number || inputs.pr_number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust-sidecar:
+    name: Rust sidecar
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.pr_number != '' && format('refs/pull/{0}/merge', inputs.pr_number) || github.ref }}
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/git
+            ~/.cargo/registry
+            codex-watcher/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('codex-watcher/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Check Rust formatting
+        run: cargo fmt --check
+        working-directory: codex-watcher
+
+      - name: Test Rust sidecar
+        run: cargo test
+        working-directory: codex-watcher
+
+      - name: Compile Python smoke tests
+        run: python3 -m py_compile scripts/ipc_smoke_test.py scripts/app_runtime_smoke_test.py
+
+      - name: Run IPC smoke test
+        run: make test-ipc
+
+  macos-app:
+    name: macOS app
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.pr_number != '' && format('refs/pull/{0}/merge', inputs.pr_number) || github.ref }}
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/git
+            ~/.cargo/registry
+            codex-watcher/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('codex-watcher/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Run macOS unit tests
+        run: |
+          xcodebuild test \
+            -project CodexIsland.xcodeproj \
+            -scheme CodexIsland \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            CODE_SIGN_IDENTITY=- \
+            CODE_SIGNING_ALLOWED=YES
+
+      - name: Build macOS app
+        run: make build-macos

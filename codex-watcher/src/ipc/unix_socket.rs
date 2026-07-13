@@ -17,13 +17,9 @@ pub struct IpcServer {
 
 #[derive(Debug, Default)]
 struct ReplayCache {
-    state: Option<String>,
-    /// Latest per-session `TokenSnapshot`, keyed by `session_id`. Kept as a map rather
-    /// than a single slot so a freshly connected IPC client receives every session's
-    /// current token frame from the replay cache, not just whichever one happened to be
-    /// published last. Without this, the capsule shows all zeros at startup until the
-    /// user asks codex another question and a live token_count event repopulates the
-    /// single-slot cache.
+    states: HashMap<String, String>,
+    /// Latest per-session `TokenSnapshot`, keyed by `session_id`, so a freshly
+    /// connected IPC client receives every session's current token frame.
     tokens: HashMap<String, String>,
     global_token: Option<String>,
     daily_token: Option<String>,
@@ -46,7 +42,10 @@ impl ReplayCache {
         }
 
         if value.get("total_input").is_some() && value.get("delta_output").is_some() {
-            if let Some(session_id) = value.get("session_id").and_then(|value| value.as_str()) {
+            if let Some(session_id) = value
+                .get("session_id")
+                .and_then(|session_id| session_id.as_str())
+            {
                 self.tokens
                     .insert(session_id.to_string(), message.to_string());
             }
@@ -54,7 +53,13 @@ impl ReplayCache {
         }
 
         if value.get("state").is_some() && value.get("session_id").is_some() {
-            self.state = Some(message.to_string());
+            if let Some(session_id) = value
+                .get("session_id")
+                .and_then(|session_id| session_id.as_str())
+            {
+                self.states
+                    .insert(session_id.to_string(), message.to_string());
+            }
         }
     }
 
@@ -66,12 +71,51 @@ impl ReplayCache {
         if let Some(daily_token) = &self.daily_token {
             messages.push(daily_token.clone());
         }
-        messages.extend(self.tokens.values().cloned());
-        if let Some(state) = &self.state {
-            messages.push(state.clone());
-        }
+
+        let mut session_messages: Vec<(String, u8, String)> = self
+            .states
+            .values()
+            .chain(self.tokens.values())
+            .map(|message| {
+                (
+                    message_timestamp(message),
+                    message_kind_priority(message),
+                    message.clone(),
+                )
+            })
+            .collect();
+        session_messages.sort_by(|lhs, rhs| lhs.0.cmp(&rhs.0).then(lhs.1.cmp(&rhs.1)));
+
+        messages.extend(session_messages.into_iter().map(|(_, _, message)| message));
         messages
     }
+}
+
+fn message_timestamp(message: &str) -> String {
+    serde_json::from_str::<Value>(message)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("timestamp")
+                .and_then(|value| value.as_str())
+                .map(str::to_owned)
+        })
+        .unwrap_or_default()
+}
+
+fn message_kind_priority(message: &str) -> u8 {
+    let Ok(value) = serde_json::from_str::<Value>(message) else {
+        return 2;
+    };
+
+    if value.get("state").is_some() {
+        return 0;
+    }
+    if value.get("total_input").is_some() && value.get("delta_output").is_some() {
+        return 1;
+    }
+
+    2
 }
 
 impl IpcServer {
@@ -177,16 +221,28 @@ mod tests {
             r#"{"session_id":"session-a","session_file":"/tmp/a.jsonl","delta_input":20,"delta_cached_input":10,"delta_uncached_input":10,"delta_output":7,"delta_reasoning":1,"total_input":80,"total_cached_input":20,"total_uncached_input":60,"total_output":7,"total_reasoning":1,"cache_hit_rate":0.25,"timestamp":"2026-06-28T08:00:00Z","turn_index":1}"#,
         );
         cache.update(
-            r#"{"session_id":"session-a","state":"streaming","timestamp":"2026-06-28T08:00:00Z","await_reason":null}"#,
+            r#"{"session_id":"session-a","state":"running","activity_kind":"agent_message","turn_state":"in_progress","source":"jsonl","timestamp":"2026-06-28T08:00:00Z","await_reason":null}"#,
+        );
+        cache.update(
+            r#"{"session_id":"session-b","session_file":"/tmp/b.jsonl","delta_input":10,"delta_cached_input":0,"delta_uncached_input":10,"delta_output":2,"delta_reasoning":0,"total_input":10,"total_cached_input":0,"total_uncached_input":10,"total_output":2,"total_reasoning":0,"cache_hit_rate":0.0,"timestamp":"2026-06-28T08:01:00Z","turn_index":1}"#,
+        );
+        cache.update(
+            r#"{"session_id":"session-b","state":"idle","activity_kind":"none","turn_state":"completed","source":"jsonl","timestamp":"2026-06-28T08:01:00Z","await_reason":null}"#,
         );
 
         let messages = cache.messages();
 
-        assert_eq!(messages.len(), 4);
+        assert_eq!(messages.len(), 6);
         assert!(messages[0].contains(r#""type":"global_token_usage""#));
         assert!(messages[1].contains(r#""type":"daily_token_usage""#));
-        assert!(messages[2].contains(r#""delta_output":7"#));
-        assert!(messages[3].contains(r#""state":"streaming""#));
+        assert!(messages[2].contains(r#""session_id":"session-a""#));
+        assert!(messages[2].contains(r#""state":"running""#));
+        assert!(messages[3].contains(r#""session_id":"session-a""#));
+        assert!(messages[3].contains(r#""delta_output":7"#));
+        assert!(messages[4].contains(r#""session_id":"session-b""#));
+        assert!(messages[4].contains(r#""state":"idle""#));
+        assert!(messages[5].contains(r#""session_id":"session-b""#));
+        assert!(messages[5].contains(r#""delta_output":2"#));
     }
 
     #[test]

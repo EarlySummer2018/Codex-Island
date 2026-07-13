@@ -94,7 +94,7 @@ impl WsClient {
                     "version": "0.1.0"
                 },
                 "capabilities": {
-                    "experimentalApi": false
+                    "experimentalApi": true
                 }
             }
         });
@@ -147,7 +147,21 @@ impl WsClient {
 }
 
 fn is_interesting_method(method: &str) -> bool {
-    matches!(method, "turn/start" | "turn/stop" | "tool/approval/request")
+    matches!(
+        method,
+        "thread/status/changed"
+            | "turn/started"
+            | "turn/completed"
+            | "turn/start"
+            | "turn/stop"
+            | "item/started"
+            | "item/completed"
+            | "item/tool/requestUserInput"
+            | "item/requestUserInput"
+            | "item/commandExecution/requestApproval"
+            | "item/fileChange/requestApproval"
+            | "tool/approval/request"
+    )
 }
 
 #[cfg(test)]
@@ -161,9 +175,18 @@ mod tests {
     use tokio_tungstenite::{accept_async, tungstenite::Message};
 
     #[test]
-    fn recognizes_turn_and_approval_notifications() {
-        assert!(is_interesting_method("turn/start"));
-        assert!(is_interesting_method("tool/approval/request"));
+    fn recognizes_thread_turn_item_and_approval_notifications() {
+        assert!(is_interesting_method("thread/status/changed"));
+        assert!(is_interesting_method("turn/started"));
+        assert!(is_interesting_method("turn/completed"));
+        assert!(is_interesting_method("item/started"));
+        assert!(is_interesting_method("item/completed"));
+        assert!(is_interesting_method(
+            "item/commandExecution/requestApproval"
+        ));
+        assert!(is_interesting_method("item/fileChange/requestApproval"));
+        assert!(is_interesting_method("item/tool/requestUserInput"));
+        assert!(is_interesting_method("item/requestUserInput"));
         assert!(!is_interesting_method("unrelated/event"));
     }
 
@@ -183,8 +206,14 @@ mod tests {
                 .send(Message::Text(
                     json!({
                         "jsonrpc": "2.0",
-                        "method": "turn/start",
-                        "params": { "turn_id": "test-turn" }
+                        "method": "thread/status/changed",
+                        "params": {
+                            "threadId": "thread-1",
+                            "status": {
+                                "type": "active",
+                                "activeFlags": ["waitingOnApproval"]
+                            }
+                        }
                     })
                     .to_string(),
                 ))
@@ -212,8 +241,9 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(event.method, "turn/start");
-        assert_eq!(event.params["turn_id"], "test-turn");
+        assert_eq!(event.method, "thread/status/changed");
+        assert_eq!(event.params["threadId"], "thread-1");
+        assert_eq!(event.params["status"]["type"], "active");
 
         server.await.unwrap();
     }
