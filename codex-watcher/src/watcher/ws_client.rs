@@ -181,7 +181,9 @@ mod tests {
         assert!(is_interesting_method("turn/completed"));
         assert!(is_interesting_method("item/started"));
         assert!(is_interesting_method("item/completed"));
-        assert!(is_interesting_method("item/commandExecution/requestApproval"));
+        assert!(is_interesting_method(
+            "item/commandExecution/requestApproval"
+        ));
         assert!(is_interesting_method("item/fileChange/requestApproval"));
         assert!(is_interesting_method("item/tool/requestUserInput"));
         assert!(is_interesting_method("item/requestUserInput"));

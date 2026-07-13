@@ -84,11 +84,7 @@ impl ReplayCache {
             .collect();
         session_messages.sort_by(|lhs, rhs| lhs.0.cmp(&rhs.0).then(lhs.1.cmp(&rhs.1)));
 
-        messages.extend(
-            session_messages
-                .into_iter()
-                .map(|(_, _, message)| message),
-        );
+        messages.extend(session_messages.into_iter().map(|(_, _, message)| message));
         messages
     }
 }
@@ -96,7 +92,12 @@ impl ReplayCache {
 fn message_timestamp(message: &str) -> String {
     serde_json::from_str::<Value>(message)
         .ok()
-        .and_then(|value| value.get("timestamp").and_then(|value| value.as_str()).map(str::to_owned))
+        .and_then(|value| {
+            value
+                .get("timestamp")
+                .and_then(|value| value.as_str())
+                .map(str::to_owned)
+        })
         .unwrap_or_default()
 }
 
