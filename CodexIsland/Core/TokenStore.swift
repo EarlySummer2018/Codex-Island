@@ -18,13 +18,26 @@ struct TokenSnapshot: Codable, Identifiable {
     let totalUncachedInput: Int
     let totalOutput: Int
     let totalReasoning: Int
+    let contextUsed: Int?
+    let contextWindow: Int?
 
     let cacheHitRate: Double
     let timestamp: Date
     let turnIndex: Int
 
+    private static let defaultContextWindow = 258_400
+
     var cacheHitPercent: String {
         String(format: "%.1f%%", cacheHitRate * 100)
+    }
+
+    var contextUsagePercent: String {
+        guard let contextUsed else {
+            return "0.0%"
+        }
+
+        let window = contextWindow ?? Self.defaultContextWindow
+        return String(format: "%.1f%%", Double(contextUsed) / Double(window) * 100)
     }
 
     var totalTokens: Int {
@@ -44,6 +57,8 @@ struct TokenSnapshot: Codable, Identifiable {
         case totalUncachedInput = "total_uncached_input"
         case totalOutput = "total_output"
         case totalReasoning = "total_reasoning"
+        case contextUsed = "context_used"
+        case contextWindow = "context_window"
         case cacheHitRate = "cache_hit_rate"
         case timestamp
         case turnIndex = "turn_index"
@@ -67,6 +82,8 @@ final class TokenStore: ObservableObject {
     var totalOutput: Int { latest?.totalOutput ?? 0 }
     var totalTokens: Int { latest?.totalTokens ?? 0 }
     var todayTotalTokens: Int { dailyUsage?.totalTokens ?? 0 }
+    var contextUsedTokens: Int { latest?.contextUsed ?? 0 }
+    var contextUsagePercent: String { latest?.contextUsagePercent ?? "0.0%" }
     var cacheHitPercent: String { latest?.cacheHitPercent ?? "0.0%" }
 
     func update(with snapshot: TokenSnapshot, isActive: Bool = true) {

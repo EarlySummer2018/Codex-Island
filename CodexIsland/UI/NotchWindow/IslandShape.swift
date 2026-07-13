@@ -8,7 +8,6 @@ enum IslandShape: Equatable {
     static let topGap: CGFloat = 6
     static let fallbackCompactSize = CGSize(width: 120, height: 34)
     static let pillSize = CGSize(width: 360, height: 34)
-    static let smallPillSize = CGSize(width: 220, height: 34)
     static let expandedSize = CGSize(width: 440, height: 290)
 
     static let capsuleCornerRadius: CGFloat = fallbackCompactSize.height / 2
@@ -16,7 +15,8 @@ enum IslandShape: Equatable {
 
     func size(
         fitting notchFrame: CGRect,
-        capsuleStyle: CapsuleDisplayStyle = .large
+        capsuleStyle: CapsuleDisplayStyle = .large,
+        desktopPetEnabled: Bool = false
     ) -> CGSize {
         switch self {
         case .compact:
@@ -25,7 +25,7 @@ enum IslandShape: Equatable {
                 height: max(notchFrame.height, Self.fallbackCompactSize.height)
             )
         case .pill:
-            let pillSize = capsuleStyle.pillSize
+            let pillSize = capsuleStyle.pillSize(desktopPetEnabled: desktopPetEnabled)
             return CGSize(
                 width: pillSize.width,
                 height: max(notchFrame.height, pillSize.height)

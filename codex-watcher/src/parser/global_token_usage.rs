@@ -1,4 +1,4 @@
-use crate::parser::token_parser::TokenSnapshot;
+use crate::parser::token_parser::{TokenParser, TokenSnapshot};
 use crate::token_usage::token_count_value;
 use chrono::{DateTime, Local, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
@@ -65,6 +65,11 @@ pub struct DailyTokenUsageSnapshot {
 pub struct TokenUsageAggregators {
     pub global: GlobalTokenAggregator,
     pub daily: DailyTokenAggregator,
+    /// Per-session latest `TokenSnapshot` rebuilt from each history file's last
+    /// `token_count` event. Published at watcher startup so IPC clients connecting after
+    /// the initial publish still receive a current per-session token frame from the
+    /// replay cache, instead of seeing all zeros until the next live codex turn.
+    pub latest_snapshots: Vec<TokenSnapshot>,
 }
 
 impl TokenUsageAggregators {
@@ -78,6 +83,7 @@ impl TokenUsageAggregators {
     ) -> Self {
         let mut global = GlobalTokenAggregator::default();
         let mut daily = DailyTokenAggregator::new(local_date);
+        let mut latest_snapshots = Vec::new();
 
         for path in collect_jsonl_files(sessions_dir.as_ref()) {
             if let Some(scan) = scan_token_file(&path, local_date) {
@@ -85,15 +91,31 @@ impl TokenUsageAggregators {
 
                 if let Some(latest_today) = scan.latest_today_totals {
                     daily.merge_session(
-                        scan.session_id,
+                        scan.session_id.clone(),
                         latest_today.saturating_sub(&scan.daily_baseline),
                         scan.daily_baseline,
                     );
                 }
+
+                if let Some(payload) = scan.latest_token_payload {
+                    let timestamp = scan.latest_token_timestamp.unwrap_or_else(Utc::now);
+                    if let Some(snapshot) = TokenParser::snapshot_from_history(
+                        &path,
+                        Some(&scan.session_id),
+                        &payload,
+                        timestamp,
+                    ) {
+                        latest_snapshots.push(snapshot);
+                    }
+                }
             }
         }
 
-        Self { global, daily }
+        Self {
+            global,
+            daily,
+            latest_snapshots,
+        }
     }
 
     pub fn update_from_snapshot(
@@ -318,17 +340,27 @@ struct FileTokenScan {
     latest_totals: SessionTotals,
     daily_baseline: SessionTotals,
     latest_today_totals: Option<SessionTotals>,
+    /// Last `token_count` payload observed in the file, used to rebuild the session's
+    /// latest `TokenSnapshot` for startup replay.
+    latest_token_payload: Option<Value>,
+    /// Timestamp of the last `token_count` event, used as the rebuilt snapshot's
+    /// timestamp. Falls back to the file's modification time when the event payload
+    /// lacks an RFC 3339 timestamp.
+    latest_token_timestamp: Option<DateTime<Utc>>,
 }
 
 fn scan_token_file(path: &Path, local_date: NaiveDate) -> Option<FileTokenScan> {
     let file = std::fs::File::open(path).ok()?;
     let reader = BufReader::new(file);
     let fallback_date = file_modified_local_date(path);
+    let fallback_timestamp = file_modified_utc(path);
 
     let mut session_id = session_id_from_path(path);
     let mut latest_totals = None;
     let mut daily_baseline = SessionTotals::default();
     let mut latest_today_totals = None;
+    let mut latest_token_payload: Option<Value> = None;
+    let mut latest_token_timestamp: Option<DateTime<Utc>> = None;
 
     for line in reader.lines().map_while(Result::ok) {
         let Ok(parsed) = serde_json::from_str::<Value>(&line) else {
@@ -357,6 +389,13 @@ fn scan_token_file(path: &Path, local_date: NaiveDate) -> Option<FileTokenScan> 
 
         if !totals.is_zero() {
             latest_totals = Some(totals.clone());
+            latest_token_payload = Some(payload.clone());
+            let event_timestamp = parsed
+                .get("timestamp")
+                .and_then(Value::as_str)
+                .and_then(parse_utc_timestamp)
+                .or(fallback_timestamp);
+            latest_token_timestamp = event_timestamp;
         }
 
         let event_date = parsed
@@ -379,6 +418,8 @@ fn scan_token_file(path: &Path, local_date: NaiveDate) -> Option<FileTokenScan> 
         latest_totals: latest_totals?,
         daily_baseline,
         latest_today_totals,
+        latest_token_payload,
+        latest_token_timestamp,
     })
 }
 
@@ -455,6 +496,18 @@ fn file_modified_local_date(path: &Path) -> Option<NaiveDate> {
     let modified = std::fs::metadata(path).ok()?.modified().ok()?;
     let datetime: DateTime<Local> = modified.into();
     Some(datetime.date_naive())
+}
+
+fn parse_utc_timestamp(timestamp: &str) -> Option<DateTime<Utc>> {
+    DateTime::parse_from_rfc3339(timestamp)
+        .ok()
+        .map(|date| date.with_timezone(&Utc))
+}
+
+fn file_modified_utc(path: &Path) -> Option<DateTime<Utc>> {
+    let modified = std::fs::metadata(path).ok()?.modified().ok()?;
+    let datetime: DateTime<Utc> = modified.into();
+    Some(datetime)
 }
 
 #[cfg(test)]
@@ -565,6 +618,91 @@ mod tests {
         assert_eq!(daily.total_cached_input, 130);
         assert_eq!(daily.total_output, 45);
         assert_eq!(daily.total_tokens, 295);
+    }
+
+    #[test]
+    fn latest_snapshots_rebuild_each_session_latest_token_count() {
+        let root = temp_dir("latest-snapshots");
+        let day = root.join("2026/06/28");
+        fs::create_dir_all(&day).unwrap();
+
+        write_jsonl_lines(
+            &day.join("rollout-2026-06-28T10-00-00-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa.jsonl"),
+            &[
+                json!({"type": "session_meta", "payload": {"id": "session-a"}}),
+                token_count_at(100, 40, 10, 1, "2026-06-28T08:00:00Z"),
+                token_count_at(150, 70, 25, 2, "2026-06-28T08:30:00Z"),
+            ],
+        );
+        write_jsonl_lines(
+            &day.join("rollout-2026-06-28T11-00-00-bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb.jsonl"),
+            &[
+                json!({"type": "session_meta", "payload": {"id": "session-b"}}),
+                token_count_at(200, 100, 30, 3, "2026-06-28T09:00:00Z"),
+            ],
+        );
+
+        let aggregators = TokenUsageAggregators::load_from_sessions_dir_for_date(
+            &root,
+            NaiveDate::from_ymd_opt(2026, 6, 28).unwrap(),
+        );
+        let _ = fs::remove_dir_all(&root);
+
+        let snapshots = &aggregators.latest_snapshots;
+        assert_eq!(snapshots.len(), 2);
+
+        let session_a = snapshots
+            .iter()
+            .find(|snapshot| snapshot.session_id == "session-a")
+            .expect("session-a rebuilt");
+        // The rebuild reflects the latest cumulative totals, not the earlier row.
+        assert_eq!(session_a.total_input, 150);
+        assert_eq!(session_a.total_cached_input, 70);
+        assert_eq!(session_a.total_output, 25);
+        assert_eq!(session_a.total_input + session_a.total_output, 175);
+        // Deltas are zeroed: this is a seeded baseline, not a live incremental turn.
+        assert_eq!(session_a.delta_input, 0);
+        assert_eq!(session_a.delta_output, 0);
+        assert_eq!(session_a.turn_index, 0);
+        assert_eq!(
+            session_a.timestamp,
+            Utc.with_ymd_and_hms(2026, 6, 28, 8, 30, 0).unwrap()
+        );
+
+        let session_b = snapshots
+            .iter()
+            .find(|snapshot| snapshot.session_id == "session-b")
+            .expect("session-b rebuilt");
+        assert_eq!(session_b.total_input, 200);
+        assert_eq!(session_b.total_output, 30);
+        assert_eq!(session_b.total_input + session_b.total_output, 230);
+        assert_eq!(session_b.turn_index, 0);
+    }
+
+    #[test]
+    fn latest_snapshots_omits_files_without_token_counts() {
+        let root = temp_dir("latest-snapshots-empty");
+        let day = root.join("2026/06/28");
+        fs::create_dir_all(&day).unwrap();
+
+        // A session file with metadata only and a zero-totals token_count row should not
+        // contribute a rebuilt snapshot (scan_token_file drops files whose latest totals
+        // are zero, and snapshot_from_history rejects zero payloads).
+        write_jsonl_lines(
+            &day.join("rollout-2026-06-28T12-00-00-cccccccc-cccc-cccc-cccc-cccccccccccc.jsonl"),
+            &[
+                json!({"type": "session_meta", "payload": {"id": "session-c"}}),
+                token_count(0, 0, 0, 0),
+            ],
+        );
+
+        let aggregators = TokenUsageAggregators::load_from_sessions_dir_for_date(
+            &root,
+            NaiveDate::from_ymd_opt(2026, 6, 28).unwrap(),
+        );
+        let _ = fs::remove_dir_all(&root);
+
+        assert!(aggregators.latest_snapshots.is_empty());
     }
 
     #[test]
@@ -723,6 +861,8 @@ mod tests {
             total_uncached_input: input.saturating_sub(cached),
             total_output: output,
             total_reasoning: reasoning,
+            context_used: input + output,
+            context_window: None,
             cache_hit_rate: 0.0,
             timestamp: Utc::now(),
             turn_index: 1,

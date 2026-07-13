@@ -3,21 +3,39 @@ import Combine
 import CoreGraphics
 import Foundation
 
-enum CapsuleDisplayStyle: String, CaseIterable, Codable {
+enum CapsuleDisplayStyle: String, CaseIterable, Codable, Hashable {
     case large
     case small
+
+    private static let desktopPetCapsuleWidthReduction: CGFloat = 36
 
     var pillSize: CGSize {
         switch self {
         case .large:
             return CGSize(width: 360, height: 34)
         case .small:
-            return CGSize(width: 220, height: 34)
+            return CGSize(width: 148, height: 34)
         }
+    }
+
+    func pillSize(desktopPetEnabled: Bool) -> CGSize {
+        guard desktopPetEnabled else {
+            return pillSize
+        }
+
+        return CGSize(
+            width: max(pillSize.width - Self.desktopPetCapsuleWidthReduction, pillSize.height),
+            height: pillSize.height
+        )
     }
 }
 
-enum AppLanguage: String, CaseIterable, Codable {
+enum CapsuleExpansionTrigger: String, CaseIterable, Codable, Hashable {
+    case hover
+    case click
+}
+
+enum AppLanguage: String, CaseIterable, Codable, Hashable {
     case chinese = "zh-Hans"
     case english = "en"
 }
@@ -92,11 +110,18 @@ final class AppSettingsStore: ObservableObject {
         }
     }
 
+    @Published var capsuleExpansionTrigger: CapsuleExpansionTrigger {
+        didSet {
+            defaults.set(capsuleExpansionTrigger.rawValue, forKey: capsuleExpansionTriggerKey)
+        }
+    }
+
     private let defaults = UserDefaults.standard
     private let capsuleStyleKey = "CodexIsland.Settings.capsuleStyle"
     private let languageKey = "CodexIsland.Settings.language"
     private let capsuleVisibleKey = "CodexIsland.Settings.capsuleVisible"
     private let desktopPetEnabledKey = "CodexIsland.Settings.desktopPetEnabled"
+    private let capsuleExpansionTriggerKey = "CodexIsland.Settings.capsuleExpansionTrigger"
 
     private init() {
         let savedStyle = defaults.string(forKey: capsuleStyleKey)
@@ -105,11 +130,14 @@ final class AppSettingsStore: ObservableObject {
             .flatMap(AppLanguage.init(rawValue:)) ?? .chinese
         let savedVisibility = defaults.object(forKey: capsuleVisibleKey) as? Bool ?? true
         let savedDesktopPetEnabled = defaults.object(forKey: desktopPetEnabledKey) as? Bool ?? false
+        let savedExpansionTrigger = defaults.string(forKey: capsuleExpansionTriggerKey)
+            .flatMap(CapsuleExpansionTrigger.init(rawValue:)) ?? .hover
 
         capsuleStyle = savedStyle
         language = savedLanguage
         isCapsuleVisible = savedVisibility
         isDesktopPetEnabled = savedDesktopPetEnabled
+        capsuleExpansionTrigger = savedExpansionTrigger
     }
 
     func text(_ key: AppTextKey) -> String {

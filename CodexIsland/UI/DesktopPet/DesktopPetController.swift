@@ -55,13 +55,13 @@ final class DesktopPetController: ObservableObject {
         settings.$isCapsuleVisible
             .dropFirst()
             .sink { [weak self] visible in
-                guard let self else {
+                guard let self,
+                      !visible,
+                      !self.settings.isDesktopPetEnabled else {
                     return
                 }
 
-                if !visible {
-                    self.stopImmediately()
-                }
+                self.stopImmediately()
             }
             .store(in: &cancellables)
 
@@ -176,11 +176,6 @@ final class DesktopPetController: ObservableObject {
     }
 
     private func enable() {
-        guard settings.isCapsuleVisible else {
-            settings.isDesktopPetEnabled = false
-            return
-        }
-
         if phase == .waitingForCapsuleStill || phase == .returning {
             resumeFromReturnInterruption()
             return
@@ -443,7 +438,6 @@ final class DesktopPetController: ObservableObject {
 
     private func resumeRoaming() {
         guard settings.isDesktopPetEnabled,
-              settings.isCapsuleVisible,
               phase != .disabled,
               phase != .waitingForCapsuleStill,
               phase != .returning else {
@@ -491,7 +485,6 @@ final class DesktopPetController: ObservableObject {
 
     private func playRestingMicroAction(delayOverride: TimeInterval? = nil) {
         guard settings.isDesktopPetEnabled,
-              settings.isCapsuleVisible,
               phase == .roaming else {
             return
         }

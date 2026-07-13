@@ -15,12 +15,12 @@ struct TokenInfoRow: View {
     }
 
     private var largeRow: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 8) {
             TokenPill(
                 label: settings.text(.input),
                 value: store.totalInput,
                 color: TokenColors.input,
-                width: 50
+                width: largePillWidth
             )
 
             TokenPill(
@@ -28,37 +28,78 @@ struct TokenInfoRow: View {
                 value: store.totalCachedInput,
                 color: TokenColors.cached,
                 suffix: store.cacheHitPercent,
-                width: 74
+                width: largePillWidth
             )
 
             TokenPill(
                 label: settings.text(.output),
                 value: store.totalOutput,
                 color: TokenColors.output,
-                width: 50
+                width: largePillWidth
+            )
+
+            TokenPill(
+                label: todayLabel,
+                value: store.todayTotalTokens,
+                color: TokenColors.today,
+                width: largePillWidth
+            )
+
+            TokenPill(
+                label: contextLabel,
+                value: store.contextUsedTokens,
+                color: TokenColors.context,
+                suffix: store.contextUsagePercent,
+                width: largePillWidth
             )
 
             TokenPill(
                 label: settings.text(.total),
                 value: store.totalTokens,
                 color: TokenColors.total,
-                width: 64,
-                alignment: .trailing
+                width: largePillWidth
             )
         }
-        .frame(width: 296, height: 28)
+        .frame(width: 304, height: 28)
+    }
+
+    private var largePillWidth: CGFloat { 44 }
+
+    private var todayLabel: String {
+        switch settings.language {
+        case .chinese:
+            return "今日"
+        case .english:
+            return "TODAY"
+        }
+    }
+
+    private var contextLabel: String {
+        switch settings.language {
+        case .chinese:
+            return "上下文"
+        case .english:
+            return "CTX"
+        }
     }
 
     private var smallRow: some View {
-        HStack {
+        HStack(spacing: 4) {
+            TokenPill(
+                label: todayLabel,
+                value: store.todayTotalTokens,
+                color: TokenColors.today,
+                width: 40
+            )
+
             TokenPill(
                 label: settings.text(.total),
                 value: store.totalTokens,
                 color: TokenColors.total,
-                width: 132,
+                width: 48,
                 alignment: .trailing
             )
         }
-        .frame(width: 132, height: 28)
+        .frame(width: 92, height: 28)
     }
 }

@@ -1,5 +1,5 @@
 use crate::parser::RawEvent;
-use crate::token_usage::token_count_value;
+use crate::token_usage::{context_used_tokens, model_context_window, token_count_value};
 use crate::watcher::jsonl_watcher::RawJsonlLine;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -32,6 +32,8 @@ pub struct TokenSnapshot {
     pub total_uncached_input: u64,
     pub total_output: u64,
     pub total_reasoning: u64,
+    pub context_used: u64,
+    pub context_window: Option<u64>,
 
     pub cache_hit_rate: f64,
     pub timestamp: DateTime<Utc>,
@@ -95,6 +97,8 @@ impl TokenParser {
             output_tokens: token_count_value(payload, "output_tokens").unwrap_or(0),
             reasoning_tokens: token_count_value(payload, "reasoning_tokens").unwrap_or(0),
         };
+        let context_used =
+            context_used_tokens(payload).unwrap_or(current.input_tokens + current.output_tokens);
 
         debug!(
             "token_count raw: input={} cached={} output={} reasoning={}",
@@ -154,6 +158,8 @@ impl TokenParser {
                 .saturating_sub(current.cached_input_tokens),
             total_output: current.output_tokens,
             total_reasoning: current.reasoning_tokens,
+            context_used,
+            context_window: model_context_window(payload),
             cache_hit_rate,
             timestamp: Utc::now(),
             turn_index,
@@ -170,6 +176,67 @@ impl TokenParser {
         );
 
         Some(snapshot)
+    }
+
+    /// Reconstruct a session's latest `TokenSnapshot` purely from the last `token_count`
+    /// payload observed in its history file, without touching the live accumulator or
+    /// turn-index state. Deltas are zeroed because the rebuild represents an existing
+    /// cumulative total rather than a new incremental step, and `turn_index` is set to 0
+    /// to mark it as a seeded baseline rather than a live turn.
+    ///
+    /// Used at watcher startup so newly connected IPC clients receive a current
+    /// per-session token frame via the replay cache instead of seeing all zeros until
+    /// the next live codex turn.
+    pub fn snapshot_from_history(
+        session_file: &Path,
+        session_id: Option<&str>,
+        payload: &Value,
+        timestamp: DateTime<Utc>,
+    ) -> Option<TokenSnapshot> {
+        let input_tokens = token_count_value(payload, "input_tokens").unwrap_or(0);
+        let cached_input_tokens = token_count_value(payload, "cached_input_tokens").unwrap_or(0);
+        let output_tokens = token_count_value(payload, "output_tokens").unwrap_or(0);
+        let reasoning_tokens = token_count_value(payload, "reasoning_tokens").unwrap_or(0);
+
+        if input_tokens == 0
+            && cached_input_tokens == 0
+            && output_tokens == 0
+            && reasoning_tokens == 0
+        {
+            return None;
+        }
+
+        let context_used = context_used_tokens(payload).unwrap_or(input_tokens + output_tokens);
+        let cache_hit_rate = if input_tokens > 0 {
+            cached_input_tokens as f64 / input_tokens as f64
+        } else {
+            0.0
+        };
+        let file_key = session_file.to_string_lossy().to_string();
+        let resolved_session_id = session_id
+            .map(ToOwned::to_owned)
+            .or_else(|| session_id_from_path(session_file))
+            .unwrap_or_else(|| "unknown".to_string());
+
+        Some(TokenSnapshot {
+            session_id: resolved_session_id,
+            session_file: file_key,
+            delta_input: 0,
+            delta_cached_input: 0,
+            delta_uncached_input: 0,
+            delta_output: 0,
+            delta_reasoning: 0,
+            total_input: input_tokens,
+            total_cached_input: cached_input_tokens,
+            total_uncached_input: input_tokens.saturating_sub(cached_input_tokens),
+            total_output: output_tokens,
+            total_reasoning: reasoning_tokens,
+            context_used,
+            context_window: model_context_window(payload),
+            cache_hit_rate,
+            timestamp,
+            turn_index: 0,
+        })
     }
 
     #[cfg(test)]
@@ -243,9 +310,10 @@ mod tests {
                         "cached_input_tokens": 1,
                         "output_tokens": 1,
                         "reasoning_output_tokens": 0,
-                        "total_tokens": 2
+                        "total_tokens": 154630
                     }
-                }
+                },
+                "model_context_window": 258400
             }
         })
     }
@@ -323,6 +391,8 @@ mod tests {
         assert_eq!(snapshot.total_cached_input, 36520192);
         assert_eq!(snapshot.total_output, 113761);
         assert_eq!(snapshot.total_reasoning, 31644);
+        assert_eq!(snapshot.context_used, 154630);
+        assert_eq!(snapshot.context_window, Some(258400));
         assert_eq!(snapshot.delta_output, 113761);
         assert_eq!(snapshot.turn_index, 1);
     }

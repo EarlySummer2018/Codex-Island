@@ -12,10 +12,26 @@ pub(crate) fn token_count_value(payload: &Value, internal_key: &str) -> Option<u
         .or_else(|| total_usage(payload).and_then(|usage| number_field(usage, internal_key)))
 }
 
+pub(crate) fn context_used_tokens(payload: &Value) -> Option<u64> {
+    number_field(payload, "context_used")
+        .or_else(|| last_usage(payload).and_then(|usage| number_field(usage, "total_tokens")))
+}
+
+pub(crate) fn model_context_window(payload: &Value) -> Option<u64> {
+    number_field(payload, "context_window")
+        .or_else(|| number_field(payload, "model_context_window"))
+}
+
 fn total_usage(payload: &Value) -> Option<&Value> {
     payload
         .get("info")
         .and_then(|info| info.get("total_token_usage"))
+}
+
+fn last_usage(payload: &Value) -> Option<&Value> {
+    payload
+        .get("info")
+        .and_then(|info| info.get("last_token_usage"))
 }
 
 fn number_field(value: &Value, key: &str) -> Option<u64> {
@@ -24,7 +40,7 @@ fn number_field(value: &Value, key: &str) -> Option<u64> {
 
 #[cfg(test)]
 mod tests {
-    use super::token_count_value;
+    use super::{context_used_tokens, model_context_window, token_count_value};
     use serde_json::json;
 
     #[test]
@@ -70,5 +86,20 @@ mod tests {
         assert_eq!(token_count_value(&payload, "cached_input_tokens"), Some(40));
         assert_eq!(token_count_value(&payload, "output_tokens"), Some(12));
         assert_eq!(token_count_value(&payload, "reasoning_tokens"), Some(3));
+    }
+
+    #[test]
+    fn reads_context_fields_from_real_codex_token_payload() {
+        let payload = json!({
+            "info": {
+                "last_token_usage": {
+                    "total_tokens": 154630
+                }
+            },
+            "model_context_window": 258400
+        });
+
+        assert_eq!(context_used_tokens(&payload), Some(154630));
+        assert_eq!(model_context_window(&payload), Some(258400));
     }
 }

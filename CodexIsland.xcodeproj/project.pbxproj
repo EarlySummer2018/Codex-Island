@@ -19,6 +19,7 @@
 		46505A792C3F57C1A07793F1 /* TokenFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 277912B119B52F92385750DB /* TokenFormatter.swift */; };
 		48F20786D110C5DD6B8423AC /* StreamingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3203B54E398B6FA82C49F39 /* StreamingView.swift */; };
 		4A2DD45B085FECC4A6B5B45C /* TokenHistoryChart.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42D120A44F9693ED19653B54 /* TokenHistoryChart.swift */; };
+		4C3A514EFC630D29E5A13C48 /* SettingsPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53E2FA6AD5995DBBBA5E37B4 /* SettingsPanelView.swift */; };
 		50F8287E4519A01B3197DF67 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B1FFC0CAC71F0DC235F00D33 /* Assets.xcassets */; };
 		57C582D9CFF12DCAD811EF64 /* SessionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41ED3871A4D628B3499395C3 /* SessionState.swift */; };
 		59E11D711F9F026C41CA42DA /* AwaitingDetailPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B83E60778E81DFE5B92FCC2D /* AwaitingDetailPanel.swift */; };
@@ -75,6 +76,7 @@
 		42D120A44F9693ED19653B54 /* TokenHistoryChart.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TokenHistoryChart.swift; sourceTree = "<group>"; };
 		468F97FDA96EC3D9C2E36C6B /* IslandShape.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IslandShape.swift; sourceTree = "<group>"; };
 		4723038E094D7BE34091C0BA /* DesktopPetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesktopPetView.swift; sourceTree = "<group>"; };
+		53E2FA6AD5995DBBBA5E37B4 /* SettingsPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsPanelView.swift; sourceTree = "<group>"; };
 		5F342ED3E59524DEB0BB752F /* DesktopPetBehaviorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesktopPetBehaviorTests.swift; sourceTree = "<group>"; };
 		61104FAE96694A58F4BD75EF /* NotchIslandPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotchIslandPanel.swift; sourceTree = "<group>"; };
 		6363BA6C2C6137F4CC4CE7E4 /* SidecarBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidecarBridge.swift; sourceTree = "<group>"; };
@@ -155,6 +157,7 @@
 				A34D7CA0C1EDD0128470BFB2 /* AwaitingView.swift */,
 				C908711A5394068832C2F9AA /* ExpandedPanelView.swift */,
 				800B32207E6C3BDCD828A429 /* IdleView.swift */,
+				53E2FA6AD5995DBBBA5E37B4 /* SettingsPanelView.swift */,
 				B3203B54E398B6FA82C49F39 /* StreamingView.swift */,
 				D1DD9BCFE0FEDBEB0294AF8B /* ThinkingView.swift */,
 			);
@@ -383,6 +386,7 @@
 				953EFAA8882D06AFE74292D7 /* PixelPetView.swift in Sources */,
 				FCF1470F56DD61F572A58AEA /* RoamingPetView.swift in Sources */,
 				57C582D9CFF12DCAD811EF64 /* SessionState.swift in Sources */,
+				4C3A514EFC630D29E5A13C48 /* SettingsPanelView.swift in Sources */,
 				FBB3D121D2B2D940C014665A /* SidecarBridge.swift in Sources */,
 				48F20786D110C5DD6B8423AC /* StreamingView.swift in Sources */,
 				6E86BDAAED97C927CF901D0B /* ThinkingView.swift in Sources */,

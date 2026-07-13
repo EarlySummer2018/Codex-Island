@@ -16,6 +16,8 @@ final class NotchIslandPanel: NSPanel {
     private var dragStartMouseLocation: NSPoint = .zero
     private var dragStartFrame: NSRect = .zero
     private var dragResistanceScreen: NSScreen?
+    private var outsideClickGlobalMonitor: Any?
+    private var outsideClickLocalMonitor: Any?
     private var stableAnchorMidX: CGFloat?
     private var hoverAnchorMidX: CGFloat?
     private var cancellables = Set<AnyCancellable>()
@@ -74,6 +76,7 @@ final class NotchIslandPanel: NSPanel {
 
     deinit {
         NotificationCenter.default.removeObserver(self)
+        stopOutsideClickMonitoring()
     }
 
     override var canBecomeKey: Bool { false }
@@ -93,6 +96,10 @@ final class NotchIslandPanel: NSPanel {
     func hide() {
         isDragging = false
         isPressingForDrag = false
+        contentModel.isExpanded = false
+        contentModel.isExpandedContainer = false
+        contentModel.expandedMode = .dashboard
+        stopOutsideClickMonitoring()
         orderOut(nil)
     }
 
@@ -127,6 +134,13 @@ final class NotchIslandPanel: NSPanel {
             }
             .store(in: &cancellables)
 
+        settings.$isDesktopPetEnabled
+            .dropFirst()
+            .sink { [weak self] _ in
+                self?.relayout(animated: true)
+            }
+            .store(in: &cancellables)
+
         settings.$isCapsuleVisible
             .dropFirst()
             .sink { [weak self] visible in
@@ -141,6 +155,13 @@ final class NotchIslandPanel: NSPanel {
                 }
             }
             .store(in: &cancellables)
+
+        settings.$capsuleExpansionTrigger
+            .dropFirst()
+            .sink { [weak self] trigger in
+                self?.handleExpansionTriggerChanged(trigger)
+            }
+            .store(in: &cancellables)
     }
 
     private func setRestingShape(_ shape: IslandShape) {
@@ -152,6 +173,10 @@ final class NotchIslandPanel: NSPanel {
     }
 
     private func setHovered(_ hovered: Bool) {
+        guard settings.capsuleExpansionTrigger == .hover else {
+            return
+        }
+
         guard !isDragging, !isPressingForDrag else {
             return
         }
@@ -171,6 +196,10 @@ final class NotchIslandPanel: NSPanel {
     }
 
     private func syncHoverStateWithMouseLocation() {
+        guard settings.capsuleExpansionTrigger == .hover else {
+            return
+        }
+
         guard !isDragging, !isPressingForDrag else {
             return
         }
@@ -199,6 +228,9 @@ final class NotchIslandPanel: NSPanel {
         contentModel.isExpandedContainer = true
         let anchorMidX = stableAnchorMidX ?? frame.midX
         hoverAnchorMidX = anchorMidX
+        if settings.capsuleExpansionTrigger == .click {
+            startOutsideClickMonitoring()
+        }
 
         transition(to: .expanded, anchorMidX: anchorMidX) { [weak self] in
             guard let self,
@@ -216,6 +248,8 @@ final class NotchIslandPanel: NSPanel {
     private func collapseFromHover() {
         isHovered = false
         contentModel.isExpanded = false
+        contentModel.expandedMode = .dashboard
+        stopOutsideClickMonitoring()
         let anchorMidX = stableAnchorMidX ?? frame.midX
         stableAnchorMidX = anchorMidX
         hoverAnchorMidX = anchorMidX
@@ -251,7 +285,9 @@ final class NotchIslandPanel: NSPanel {
             return
         }
 
-        beginDrag(at: screenLocation(for: startEvent))
+        let startLocation = screenLocation(for: startEvent)
+        var movedBeyondClickThreshold = false
+        beginDrag(at: startLocation)
 
         let eventMask: NSEvent.EventTypeMask = [.leftMouseDragged, .leftMouseUp]
         while isDragging {
@@ -266,9 +302,21 @@ final class NotchIslandPanel: NSPanel {
 
             switch nextEvent.type {
             case .leftMouseDragged:
-                drag(to: screenLocation(for: nextEvent))
+                let location = screenLocation(for: nextEvent)
+                if IslandPressGesture.isDrag(from: startLocation, to: location) {
+                    movedBeyondClickThreshold = true
+                }
+                if movedBeyondClickThreshold {
+                    drag(to: location)
+                }
             case .leftMouseUp:
-                endDrag()
+                let location = screenLocation(for: nextEvent)
+                let isClick = !movedBeyondClickThreshold
+                    && IslandPressGesture.isClick(from: startLocation, to: location)
+                endDrag(savePosition: movedBeyondClickThreshold)
+                if isClick {
+                    handleCapsuleClick()
+                }
                 return
             default:
                 break
@@ -299,7 +347,7 @@ final class NotchIslandPanel: NSPanel {
         setFrame(resistedFrame, display: true)
     }
 
-    private func endDrag() {
+    private func endDrag(savePosition: Bool = true) {
         guard isDragging else {
             return
         }
@@ -307,8 +355,79 @@ final class NotchIslandPanel: NSPanel {
         isDragging = false
         dragResistanceScreen = nil
         setPressingForDrag(false)
-        stableAnchorMidX = frame.midX
-        saveCurrentPosition()
+        if savePosition {
+            stableAnchorMidX = frame.midX
+            saveCurrentPosition()
+        }
+    }
+
+    private func handleCapsuleClick() {
+        guard settings.capsuleExpansionTrigger == .click,
+              currentShape != .expanded else {
+            return
+        }
+
+        expandForHover()
+    }
+
+    private func handleExpansionTriggerChanged(_ trigger: CapsuleExpansionTrigger) {
+        stopOutsideClickMonitoring()
+
+        switch trigger {
+        case .hover:
+            syncHoverStateWithMouseLocation()
+        case .click:
+            if currentShape == .expanded {
+                collapseFromHover()
+            }
+        }
+    }
+
+    private func startOutsideClickMonitoring() {
+        guard outsideClickGlobalMonitor == nil,
+              outsideClickLocalMonitor == nil else {
+            return
+        }
+
+        let eventMask: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown]
+        outsideClickGlobalMonitor = NSEvent.addGlobalMonitorForEvents(matching: eventMask) { [weak self] _ in
+            DispatchQueue.main.async {
+                self?.collapseForOutsideClick(at: NSEvent.mouseLocation)
+            }
+        }
+        outsideClickLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: eventMask) { [weak self] event in
+            self?.collapseForOutsideClick(event: event)
+            return event
+        }
+    }
+
+    private func stopOutsideClickMonitoring() {
+        if let outsideClickGlobalMonitor {
+            NSEvent.removeMonitor(outsideClickGlobalMonitor)
+            self.outsideClickGlobalMonitor = nil
+        }
+        if let outsideClickLocalMonitor {
+            NSEvent.removeMonitor(outsideClickLocalMonitor)
+            self.outsideClickLocalMonitor = nil
+        }
+    }
+
+    private func collapseForOutsideClick(event: NSEvent) {
+        guard event.window != self else {
+            return
+        }
+
+        collapseForOutsideClick(at: NSEvent.mouseLocation)
+    }
+
+    private func collapseForOutsideClick(at point: NSPoint) {
+        guard settings.capsuleExpansionTrigger == .click,
+              currentShape == .expanded,
+              !frame.contains(point) else {
+            return
+        }
+
+        collapseFromHover()
     }
 
     private func screenLocation(for event: NSEvent) -> NSPoint {
@@ -337,6 +456,8 @@ final class NotchIslandPanel: NSPanel {
         currentShape = restingShape
         contentModel.isExpanded = false
         contentModel.isExpandedContainer = false
+        contentModel.expandedMode = .dashboard
+        stopOutsideClickMonitoring()
     }
 
     private func relayout(
@@ -475,7 +596,11 @@ final class NotchIslandPanel: NSPanel {
         screen: NSScreen
     ) -> NSRect {
         let usableFrame = usableFrame(for: screen)
-        var size = shape.size(fitting: notchFrame, capsuleStyle: settings.capsuleStyle)
+        var size = shape.size(
+            fitting: notchFrame,
+            capsuleStyle: settings.capsuleStyle,
+            desktopPetEnabled: settings.isDesktopPetEnabled
+        )
         size.width = min(size.width, usableFrame.width)
         size.height = min(size.height, usableFrame.height - IslandShape.topGap)
 
@@ -946,7 +1071,7 @@ private final class NotchIslandHostingView: NSHostingView<NotchIslandView> {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        if isDragHandlePoint(point) {
+        if interactionRegion(at: point) == .drag {
             return self
         }
 
@@ -955,7 +1080,7 @@ private final class NotchIslandHostingView: NSHostingView<NotchIslandView> {
 
     override func mouseDown(with event: NSEvent) {
         let localPoint = convert(event.locationInWindow, from: nil)
-        guard isDragHandlePoint(localPoint) else {
+        guard interactionRegion(at: localPoint) == .drag else {
             super.mouseDown(with: event)
             return
         }
@@ -967,23 +1092,79 @@ private final class NotchIslandHostingView: NSHostingView<NotchIslandView> {
         true
     }
 
-    private func isDragHandlePoint(_ point: NSPoint) -> Bool {
-        guard bounds.height >= 80 else {
-            return bounds.contains(point)
+    private func interactionRegion(at point: NSPoint) -> IslandInteractionRegion {
+        IslandInteractionHitTest.region(for: point, in: bounds, isFlipped: isFlipped)
+    }
+}
+
+enum IslandInteractionRegion: Equatable {
+    case content
+    case drag
+    case settingsButton
+}
+
+enum IslandInteractionHitTest {
+    static let expandedHeaderHeight: CGFloat = 64
+    static let settingsButtonSize = CGSize(width: 44, height: 44)
+    static let settingsButtonInset: CGFloat = 10
+
+    static func region(
+        for point: NSPoint,
+        in bounds: NSRect,
+        isFlipped: Bool
+    ) -> IslandInteractionRegion {
+        guard bounds.contains(point) else {
+            return .content
         }
 
-        let handleWidth = min(max(bounds.width * 0.22, 76), 112)
-        let handleHeight: CGFloat = 58
-        let handleY = isFlipped
-            ? bounds.minY + 4
-            : bounds.maxY - handleHeight - 4
-        let handleFrame = NSRect(
-            x: bounds.maxX - handleWidth - 10,
-            y: handleY,
-            width: handleWidth,
-            height: handleHeight
-        )
+        guard bounds.height >= 80 else {
+            return .drag
+        }
 
-        return handleFrame.contains(point)
+        if settingsButtonFrame(in: bounds, isFlipped: isFlipped).contains(point) {
+            return .settingsButton
+        }
+
+        if headerFrame(in: bounds, isFlipped: isFlipped).contains(point) {
+            return .drag
+        }
+
+        return .content
+    }
+
+    static func headerFrame(in bounds: NSRect, isFlipped: Bool) -> NSRect {
+        let y = isFlipped ? bounds.minY : bounds.maxY - expandedHeaderHeight
+        return NSRect(
+            x: bounds.minX,
+            y: y,
+            width: bounds.width,
+            height: expandedHeaderHeight
+        )
+    }
+
+    static func settingsButtonFrame(in bounds: NSRect, isFlipped: Bool) -> NSRect {
+        let y = isFlipped
+            ? bounds.minY + settingsButtonInset
+            : bounds.maxY - settingsButtonInset - settingsButtonSize.height
+        return NSRect(
+            x: bounds.maxX - settingsButtonInset - settingsButtonSize.width,
+            y: y,
+            width: settingsButtonSize.width,
+            height: settingsButtonSize.height
+        )
+    }
+}
+
+enum IslandPressGesture {
+    static let clickMovementThreshold: CGFloat = 4
+
+    static func isClick(from start: NSPoint, to end: NSPoint) -> Bool {
+        !isDrag(from: start, to: end)
+    }
+
+    static func isDrag(from start: NSPoint, to end: NSPoint) -> Bool {
+        let dx = end.x - start.x
+        let dy = end.y - start.y
+        return dx * dx + dy * dy > clickMovementThreshold * clickMovementThreshold
     }
 }

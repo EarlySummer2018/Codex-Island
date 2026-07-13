@@ -225,7 +225,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if settings.isCapsuleVisible {
             NotchIslandPanel.shared.show()
         } else {
-            settings.isDesktopPetEnabled = false
             NotchIslandPanel.shared.hide()
         }
 
@@ -233,10 +232,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func toggleDesktopPet() {
-        guard settings.isCapsuleVisible || settings.isDesktopPetEnabled else {
-            return
-        }
-
         settings.isDesktopPetEnabled.toggle()
         scheduleStatusMenuRebuild()
     }
