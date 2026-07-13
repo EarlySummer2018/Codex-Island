@@ -16,7 +16,6 @@ struct NotchIslandView: View {
     @ObservedObject private var eventBus = EventBus.shared
     @ObservedObject private var evolutionStore = PetEvolutionStore.shared
     @ObservedObject var model: NotchIslandContentModel
-    let onRestingShapeChanged: (IslandShape) -> Void
 
     var body: some View {
         let containerShape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
@@ -53,12 +52,6 @@ struct NotchIslandView: View {
         )
         .clipShape(containerShape)
         .contentShape(Rectangle())
-        .onAppear {
-            onRestingShapeChanged(shape(for: eventBus.sessionState))
-        }
-        .onChange(of: eventBus.sessionState) { state in
-            onRestingShapeChanged(shape(for: state))
-        }
     }
 
     @ViewBuilder
@@ -90,14 +83,5 @@ struct NotchIslandView: View {
 
     private var cornerRadius: CGFloat {
         model.isExpandedContainer ? IslandShape.expandedCornerRadius : IslandShape.capsuleCornerRadius
-    }
-
-    private func shape(for state: CodexSessionState) -> IslandShape {
-        switch state {
-        case .notLoaded, .idle, .error:
-            return .compact
-        case .running, .waitingForInput, .readyForReview:
-            return .pill
-        }
     }
 }

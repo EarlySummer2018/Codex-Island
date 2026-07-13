@@ -229,7 +229,7 @@ final class DesktopPetBehaviorTests: XCTestCase {
         XCTAssertTrue(IslandPressGesture.isDrag(from: start, to: CGPoint(x: 45, y: 40)))
     }
 
-    func testCapsuleSavedPositionPreservesCenterAcrossSizeChanges() {
+    func testCapsuleSavedPositionPreservesTopCenterAcrossSizeChanges() {
         let usableFrame = CGRect(x: 0, y: 100, width: 1000, height: 700)
         let expandedFrame = CGRect(x: 250, y: 380, width: 440, height: 290)
         let compactSize = CGSize(width: 360, height: 34)
@@ -244,16 +244,428 @@ final class DesktopPetBehaviorTests: XCTestCase {
             position: position
         )
 
+        XCTAssertEqual(position.reference, .topCenter)
         XCTAssertEqual(
             restoredOrigin.x + compactSize.width / 2,
             expandedFrame.midX,
             accuracy: 0.001
         )
         XCTAssertEqual(
-            restoredOrigin.y + compactSize.height / 2,
-            expandedFrame.midY,
+            restoredOrigin.y + compactSize.height,
+            expandedFrame.maxY,
             accuracy: 0.001
         )
+    }
+
+    func testIslandWindowGeometryPreservesAnchorAcrossRepeatedShapeChanges() {
+        let anchor = IslandWindowAnchor(
+            screenIdentifier: "display-1",
+            midX: 720,
+            maxY: 980
+        )
+        let pillSizes = CapsuleDisplayStyle.allCases.flatMap { style in
+            [
+                style.pillSize(desktopPetEnabled: false),
+                style.pillSize(desktopPetEnabled: true)
+            ]
+        }
+
+        for pillSize in pillSizes {
+            for _ in 0..<50 {
+                let expandedFrame = IslandWindowGeometry.frame(
+                    size: IslandShape.expandedSize,
+                    anchoredTo: anchor
+                )
+                let pillFrame = IslandWindowGeometry.frame(
+                    size: pillSize,
+                    anchoredTo: anchor
+                )
+
+                XCTAssertEqual(expandedFrame.midX, anchor.midX, accuracy: 0.001)
+                XCTAssertEqual(expandedFrame.maxY, anchor.maxY, accuracy: 0.001)
+                XCTAssertEqual(pillFrame.midX, anchor.midX, accuracy: 0.001)
+                XCTAssertEqual(pillFrame.maxY, anchor.maxY, accuracy: 0.001)
+                XCTAssertEqual(
+                    pillFrame.minX - expandedFrame.minX,
+                    (IslandShape.expandedSize.width - pillSize.width) / 2,
+                    accuracy: 0.001
+                )
+            }
+        }
+    }
+
+    func testIslandAnchorLifecycleOnlyChangesForApprovedPositionEvents() {
+        var anchorState = IslandWindowAnchorState()
+        let initialRestingFrame = CGRect(x: 500, y: 700, width: 324, height: 34)
+        let initialAnchor = anchorState.resolve(
+            screenIdentifier: "display-1",
+            restingFrame: initialRestingFrame
+        )
+
+        XCTAssertFalse(anchorState.needsResolution(for: "display-1"))
+        XCTAssertEqual(anchorState.anchor, initialAnchor)
+
+        for size in [
+            IslandShape.expandedSize,
+            IslandShape.fallbackCompactSize,
+            CGSize(width: 112, height: 34),
+            CGSize(width: 360, height: 34)
+        ] {
+            _ = IslandWindowGeometry.frame(size: size, anchoredTo: initialAnchor)
+            XCTAssertEqual(anchorState.anchor, initialAnchor)
+        }
+
+        let draggedFrame = CGRect(x: 760, y: 520, width: 440, height: 290)
+        let draggedAnchor = anchorState.updateAfterDrag(
+            screenIdentifier: "display-1",
+            frame: draggedFrame
+        )
+        XCTAssertEqual(draggedAnchor.midX, draggedFrame.midX, accuracy: 0.001)
+        XCTAssertEqual(draggedAnchor.maxY, draggedFrame.maxY, accuracy: 0.001)
+        XCTAssertNotEqual(draggedAnchor, initialAnchor)
+
+        anchorState.invalidate()
+        XCTAssertNil(anchorState.anchor)
+        XCTAssertTrue(anchorState.needsResolution(for: "display-1"))
+
+        let resetFrame = CGRect(x: 798, y: 900, width: 324, height: 34)
+        let resetAnchor = anchorState.resolve(
+            screenIdentifier: "display-1",
+            restingFrame: resetFrame
+        )
+        XCTAssertEqual(resetAnchor.midX, resetFrame.midX, accuracy: 0.001)
+        XCTAssertEqual(resetAnchor.maxY, resetFrame.maxY, accuracy: 0.001)
+    }
+
+    func testIslandAnchorAndScreenSelectionFollowDisplayConfigurationChanges() {
+        var anchorState = IslandWindowAnchorState()
+        _ = anchorState.resolve(
+            screenIdentifier: "display-1",
+            restingFrame: CGRect(x: 500, y: 700, width: 324, height: 34)
+        )
+
+        XCTAssertEqual(
+            IslandScreenSelection.preferredIdentifier(
+                availableIdentifiers: ["display-1", "display-2"],
+                anchorIdentifier: anchorState.anchor?.screenIdentifier,
+                savedIdentifier: "display-2",
+                primaryIdentifier: "display-1"
+            ),
+            "display-1"
+        )
+
+        anchorState.invalidate()
+        XCTAssertEqual(
+            IslandScreenSelection.preferredIdentifier(
+                availableIdentifiers: ["display-1", "display-2"],
+                anchorIdentifier: anchorState.anchor?.screenIdentifier,
+                savedIdentifier: "display-2",
+                primaryIdentifier: "display-1"
+            ),
+            "display-2"
+        )
+
+        XCTAssertEqual(
+            IslandScreenSelection.preferredIdentifier(
+                availableIdentifiers: ["display-2"],
+                anchorIdentifier: "display-1",
+                savedIdentifier: nil,
+                primaryIdentifier: "display-2"
+            ),
+            "display-2"
+        )
+
+        let secondScreenAnchor = anchorState.resolve(
+            screenIdentifier: "display-2",
+            restingFrame: CGRect(x: 2400, y: 820, width: 324, height: 34)
+        )
+        XCTAssertEqual(secondScreenAnchor.screenIdentifier, "display-2")
+        XCTAssertFalse(anchorState.needsResolution(for: "display-2"))
+        XCTAssertTrue(anchorState.needsResolution(for: "display-1"))
+    }
+
+    func testLegacyCenterSavedPositionStillRestoresWithoutMigrationLoss() {
+        let usableFrame = CGRect(x: 0, y: 100, width: 1000, height: 700)
+        let legacyPosition = SavedIslandPosition(
+            xRatio: 0.62,
+            yRatio: 0.74,
+            reference: .center
+        )
+        let size = CGSize(width: 324, height: 34)
+
+        let origin = IslandPositionGeometry.origin(
+            for: size,
+            usableFrame: usableFrame,
+            position: legacyPosition
+        )
+
+        XCTAssertEqual(origin.x + size.width / 2, 620, accuracy: 0.001)
+        XCTAssertEqual(origin.y + size.height / 2, 618, accuracy: 0.001)
+    }
+
+    func testStartupPillCompactPillSequenceKeepsOneAnchor() {
+        let anchor = IslandWindowAnchor(
+            screenIdentifier: "display-1",
+            midX: 640,
+            maxY: 900
+        )
+        let states: [CodexSessionState] = [.running, .notLoaded, .running]
+        let expectedTransitions: [(IslandShape, CGSize)] = [
+            (.pill, CGSize(width: 324, height: 34)),
+            (.compact, IslandShape.fallbackCompactSize),
+            (.pill, CGSize(width: 324, height: 34))
+        ]
+        var transitionState = IslandWindowTransitionState(restingShape: .pill)
+
+        for (sessionState, expected) in zip(states, expectedTransitions) {
+            let shape = IslandShape.resting(for: sessionState)
+            transitionState.updateRestingShape(shape)
+            transitionState.setCurrentShape(shape)
+            let transition = transitionState.beginTransition(
+                size: expected.1,
+                anchoredTo: anchor
+            )
+
+            XCTAssertEqual(transition.targetShape, expected.0)
+            XCTAssertEqual(transition.targetFrame.midX, anchor.midX, accuracy: 0.001)
+            XCTAssertEqual(transition.targetFrame.maxY, anchor.maxY, accuracy: 0.001)
+            XCTAssertEqual(
+                transitionState.settledPresentationState(
+                    for: transition.id,
+                    isDragging: false,
+                    isPressingForDrag: false
+                ),
+                .collapsed
+            )
+        }
+    }
+
+    func testOutOfOrderExpansionAndCollapseCompletionsOnlySettleLatestTransition() {
+        let anchor = IslandWindowAnchor(
+            screenIdentifier: "display-1",
+            midX: 640,
+            maxY: 900
+        )
+        var transitionState = IslandWindowTransitionState(restingShape: .pill)
+
+        transitionState.activateExpansion(for: .hover)
+        let firstExpansion = transitionState.beginTransition(
+            size: IslandShape.expandedSize,
+            anchoredTo: anchor
+        )
+        transitionState.deactivateExpansion()
+        let interruptedCollapse = transitionState.beginTransition(
+            size: CGSize(width: 324, height: 34),
+            anchoredTo: anchor
+        )
+        transitionState.activateExpansion(for: .hover)
+        let latestExpansion = transitionState.beginTransition(
+            size: IslandShape.expandedSize,
+            anchoredTo: anchor
+        )
+
+        for staleTransition in [interruptedCollapse, firstExpansion] {
+            XCTAssertNil(
+                transitionState.settledPresentationState(
+                    for: staleTransition.id,
+                    isDragging: false,
+                    isPressingForDrag: false
+                )
+            )
+        }
+        XCTAssertEqual(
+            transitionState.settledPresentationState(
+                for: latestExpansion.id,
+                isDragging: false,
+                isPressingForDrag: false
+            ),
+            .expanded
+        )
+
+        transitionState.deactivateExpansion()
+        let latestCollapse = transitionState.beginTransition(
+            size: CGSize(width: 324, height: 34),
+            anchoredTo: anchor
+        )
+
+        XCTAssertNil(
+            transitionState.settledPresentationState(
+                for: latestExpansion.id,
+                isDragging: false,
+                isPressingForDrag: false
+            )
+        )
+        XCTAssertEqual(
+            transitionState.settledPresentationState(
+                for: latestCollapse.id,
+                isDragging: false,
+                isPressingForDrag: false
+            ),
+            .collapsed
+        )
+    }
+
+    func testIslandContentPresentationSettlesAfterInterruptedDrag() {
+        let anchor = IslandWindowAnchor(
+            screenIdentifier: "display-1",
+            midX: 640,
+            maxY: 900
+        )
+        var transitionState = IslandWindowTransitionState(restingShape: .pill)
+        transitionState.activateExpansion(for: .hover)
+        let expansion = transitionState.beginTransition(
+            size: IslandShape.expandedSize,
+            anchoredTo: anchor
+        )
+
+        transitionState.invalidateTransitions()
+
+        XCTAssertNil(
+            transitionState.settledPresentationState(
+                for: expansion.id,
+                isDragging: true,
+                isPressingForDrag: true
+            )
+        )
+
+        XCTAssertNil(
+            transitionState.settledPresentationState(
+                for: expansion.id,
+                isDragging: false,
+                isPressingForDrag: false
+            )
+        )
+
+        let resumedExpansion = transitionState.beginTransition(
+            size: IslandShape.expandedSize,
+            anchoredTo: anchor
+        )
+        XCTAssertEqual(
+            transitionState.settledPresentationState(
+                for: resumedExpansion.id,
+                isDragging: false,
+                isPressingForDrag: false
+            ),
+            .expanded
+        )
+
+        transitionState.deactivateExpansion()
+        let collapse = transitionState.beginTransition(
+            size: CGSize(width: 324, height: 34),
+            anchoredTo: anchor
+        )
+        XCTAssertEqual(
+            transitionState.settledPresentationState(
+                for: collapse.id,
+                isDragging: false,
+                isPressingForDrag: false
+            ),
+            .collapsed
+        )
+        XCTAssertNil(
+            transitionState.settledPresentationState(
+                for: resumedExpansion.id,
+                isDragging: false,
+                isPressingForDrag: false
+            )
+        )
+    }
+
+    func testSessionStateChangeDuringHoverUsesLatestRestingShapeAndFixedAnchor() {
+        let anchor = IslandWindowAnchor(
+            screenIdentifier: "display-1",
+            midX: 640,
+            maxY: 900
+        )
+        var transitionState = IslandWindowTransitionState(restingShape: .pill)
+        transitionState.activateExpansion(for: .hover)
+        let expansion = transitionState.beginTransition(
+            size: IslandShape.expandedSize,
+            anchoredTo: anchor
+        )
+
+        transitionState.updateRestingShape(IslandShape.resting(for: .notLoaded))
+
+        XCTAssertEqual(transitionState.currentShape, .expanded)
+        XCTAssertEqual(transitionState.restingShape, .compact)
+        XCTAssertEqual(
+            transitionState.settledPresentationState(
+                for: expansion.id,
+                isDragging: false,
+                isPressingForDrag: false
+            ),
+            .expanded
+        )
+
+        transitionState.deactivateExpansion()
+        let collapse = transitionState.beginTransition(
+            size: IslandShape.fallbackCompactSize,
+            anchoredTo: anchor
+        )
+
+        XCTAssertEqual(collapse.targetShape, .compact)
+        XCTAssertEqual(collapse.targetFrame.midX, expansion.targetFrame.midX, accuracy: 0.001)
+        XCTAssertEqual(collapse.targetFrame.maxY, expansion.targetFrame.maxY, accuracy: 0.001)
+        XCTAssertNil(
+            transitionState.settledPresentationState(
+                for: expansion.id,
+                isDragging: false,
+                isPressingForDrag: false
+            )
+        )
+        XCTAssertEqual(
+            transitionState.settledPresentationState(
+                for: collapse.id,
+                isDragging: false,
+                isPressingForDrag: false
+            ),
+            .collapsed
+        )
+    }
+
+    func testHoverAndClickExpansionShareFixedAnchorSemantics() {
+        let anchor = IslandWindowAnchor(
+            screenIdentifier: "display-1",
+            midX: 640,
+            maxY: 900
+        )
+        var expandedFrames: [NSRect] = []
+        var collapsedFrames: [NSRect] = []
+
+        for trigger in CapsuleExpansionTrigger.allCases {
+            var transitionState = IslandWindowTransitionState(restingShape: .pill)
+            XCTAssertTrue(transitionState.activateExpansion(for: trigger))
+            let expansion = transitionState.beginTransition(
+                size: IslandShape.expandedSize,
+                anchoredTo: anchor
+            )
+            transitionState.deactivateExpansion()
+            let collapse = transitionState.beginTransition(
+                size: CGSize(width: 324, height: 34),
+                anchoredTo: anchor
+            )
+
+            XCTAssertEqual(expansion.targetFrame.midX, anchor.midX, accuracy: 0.001)
+            XCTAssertEqual(expansion.targetFrame.maxY, anchor.maxY, accuracy: 0.001)
+            XCTAssertEqual(collapse.targetFrame.midX, anchor.midX, accuracy: 0.001)
+            XCTAssertEqual(collapse.targetFrame.maxY, anchor.maxY, accuracy: 0.001)
+            expandedFrames.append(expansion.targetFrame)
+            collapsedFrames.append(collapse.targetFrame)
+        }
+
+        XCTAssertEqual(expandedFrames.count, 2)
+        XCTAssertEqual(collapsedFrames.count, 2)
+        XCTAssertEqual(expandedFrames[0], expandedFrames[1])
+        XCTAssertEqual(collapsedFrames[0], collapsedFrames[1])
+    }
+
+    func testIslandShapeMapsSessionStateWithoutStartupFallback() {
+        XCTAssertEqual(IslandShape.resting(for: .notLoaded), .compact)
+        XCTAssertEqual(IslandShape.resting(for: .idle), .compact)
+        XCTAssertEqual(IslandShape.resting(for: .error), .compact)
+        XCTAssertEqual(IslandShape.resting(for: .running), .pill)
+        XCTAssertEqual(IslandShape.resting(for: .waitingForInput), .pill)
+        XCTAssertEqual(IslandShape.resting(for: .readyForReview), .pill)
     }
 
     func testMovingAnimationsAlwaysUseStrideFrames() {
