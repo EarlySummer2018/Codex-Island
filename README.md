@@ -1,31 +1,83 @@
 # Codex Island
 
-Codex Island is a small macOS companion for Codex Desktop. It watches local Codex session data, shows a persistent top-screen capsule, and turns token usage into a tiny evolving pixel pet.
+[English](README.en.md)
 
-[中文文档](README.zh-CN.md)
+Codex Island 是一个面向 Codex Desktop 的 macOS 顶部胶囊与桌面宠物应用。它监听本机 Codex 会话的状态和 token 元数据，在屏幕顶部持续显示当前状态，并将累计使用量转化为宠物等级和十阶段外观。
 
-## Features
+## 核心功能
 
-- Persistent top capsule with current-session `IN`, `CACHE`, `OUT`, and `TOTAL` token counters.
-- Pixel pet that follows official Codex runtime states: idle, running, waiting for input, ready for review, and error, with secondary activity hints such as reasoning, command execution, file changes, web search, and reply generation.
-- Pet evolution driven by global token usage across all local Codex sessions.
-- Long-press dragging with per-display position persistence.
-- Menu bar controls for capsule size, language, cache folders, Codex activation, updates, and app visibility.
-- Rust sidecar that reads only token and state metadata from `~/.codex/sessions`, without forwarding prompt or response text.
+- 顶部常驻胶囊，展示当前会话的 `IN`、`CACHE`、`OUT` 和 `TOTAL`。
+- 识别空闲、运行中、等待输入、可供审阅和错误状态，并区分思考、命令执行、文件修改、网页检索和回复生成。
+- 根据本机全部 Codex 会话的累计 token 计算宠物等级和成长进度。
+- 支持大/小胶囊、桌宠模式、长按拖动和按显示器保存位置。
+- 支持十阶段自定义宠物，胶囊、展开面板、桌宠和漫游宠物统一生效。
+- Rust sidecar 只处理 token 与状态元数据，不转发用户输入或 AI 回复正文。
 
-## Requirements
+## 自定义十阶段宠物
 
-- macOS 13 or later
-- Xcode 26.5 or compatible Xcode command line tools
+应用首次启动时会自动创建：
+
+```text
+${CODEX_HOME:-$HOME/.codex}/pets/codex-island-stages/
+├── 01-lv00-09/
+├── 02-lv10-19/
+├── 03-lv20-29/
+├── 04-lv30-39/
+├── 05-lv40-49/
+├── 06-lv50-59/
+├── 07-lv60-69/
+├── 08-lv70-79/
+├── 09-lv80-89/
+└── 10-lv90-100/
+```
+
+可以从状态栏菜单或设置面板点击“自定义宠物”直接打开该目录。每个阶段目录放入一个标准 Codex 宠物包：
+
+```text
+01-lv00-09/
+├── pet.json
+└── spritesheet.webp
+```
+
+`pet.json` 示例：
+
+```json
+{
+  "id": "ruby",
+  "displayName": "Ruby",
+  "description": "A fluffy orange-and-white cat.",
+  "spritesheetPath": "spritesheet.webp"
+}
+```
+
+图集必须满足 Codex 宠物规范：
+
+- WebP，尺寸 `1536x1872`。
+- 8 列 x 9 行，每个单元格 `192x208`。
+- 使用中的帧必须非空，未使用单元格必须完全透明。
+- `spritesheetPath` 必须是阶段目录内的安全相对路径。
+
+资源选择顺序：
+
+1. 当前阶段配置有效时，使用当前阶段的自定义宠物。
+2. 当前阶段未配置或无效，但第一阶段有效时，继承第一阶段的自定义宠物。
+3. 第一阶段也未配置或无效时，使用当前等级原本对应的内置默认宠物。
+
+自定义资源会在应用启动时扫描。替换文件后需要完全退出并重启 Codex Island，不支持运行中热更新。
+
+## 环境要求
+
+- macOS 13 或更新版本
+- Xcode 26.5 或兼容版本
 - Rust toolchain
-- XcodeGen
+- XcodeGen 2.45.4 或更新版本
 
 ```bash
 brew install xcodegen
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
-## Development
+## 本地开发
 
 ```bash
 git clone https://github.com/EarlySummer2018/Codex-Island.git
@@ -35,7 +87,7 @@ make build-macos
 open ~/Library/Developer/Xcode/DerivedData/CodexIsland-*/Build/Products/Debug/CodexIsland.app
 ```
 
-Useful commands:
+常用验证命令：
 
 ```bash
 make test-rust
@@ -44,70 +96,51 @@ make test-app-runtime
 make verify
 ```
 
-## Architecture
+## 架构与隐私
 
 ```text
-Codex sessions JSONL
-        |
-        v
-codex-watcher (Rust)
-        |
-        v
-Unix socket IPC
-        |
-        v
-CodexIsland.app (Swift/AppKit/SwiftUI)
+Codex App-Server / ~/.codex/sessions/**/*.jsonl
+                    |
+                    v
+          codex-watcher (Rust)
+                    |
+                    v
+             Unix Socket IPC
+                    |
+                    v
+        CodexIsland.app (Swift/AppKit/SwiftUI)
 ```
 
-The Rust sidecar consumes Codex App-Server runtime and item events first, falls back to sanitized `~/.codex/sessions/**/*.jsonl` metadata when needed, emits current-session token snapshots, aggregates global token usage, and broadcasts newline-delimited JSON over a Unix socket. The Swift app renders the floating capsule, menu bar controls, token counters, pet animation, and waiting-for-input alerts.
+sidecar 优先消费 Codex App-Server 事件，必要时回退到脱敏后的本地 JSONL 元数据。它不会修改 Codex 会话文件，也不会向 Swift App 转发提示词、用户消息或回复正文。
 
-## Privacy
+## 发布流程
 
-Codex Island is designed to read metadata only:
-
-- It keeps token totals and state events.
-- It does not forward assistant text deltas.
-- It does not forward user message content.
-- It does not write to Codex session files.
-
-## Packaging
-
-GitHub Actions builds release artifacts on version tags:
+发布版本以 `project.yml` 中的 `MARKETING_VERSION` 为准。版本 tag 必须与它一致：
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v1.1.2
+git push origin v1.1.2
 ```
 
-The workflow produces a zipped `.app`, a `.dmg`, and a `.pkg` installer for macOS.
+GitHub Actions 会验证版本、运行 Rust 与 Swift 测试、构建 universal 与 x86_64 macOS 应用，并生成 `.zip`、`.dmg`、`.pkg`、SHA-256 校验文件和中文 Release Notes。
 
-### Gatekeeper And Notarization
+如需 Developer ID 签名和 Apple 公证，请配置：
 
-Unsigned or ad-hoc signed downloads are blocked by macOS Gatekeeper with:
+- `MACOS_CERTIFICATE_BASE64`
+- `MACOS_CERTIFICATE_PASSWORD`
+- `KEYCHAIN_PASSWORD`
+- `MACOS_APP_SIGN_IDENTITY`
+- `MACOS_INSTALLER_SIGN_IDENTITY`
+- `APPLE_ID`
+- `APPLE_TEAM_ID`
+- `APPLE_APP_SPECIFIC_PASSWORD`
 
-```text
-Apple cannot verify that "CodexIsland" is free of malware.
-```
-
-For local testing, open the app with Control-click -> Open, or remove quarantine only for a build you trust:
+未配置这些 secrets 时，构建使用 ad-hoc 签名，仅适合本地测试。对可信的未公证构建可使用：
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/CodexIsland.app
 ```
 
-For public releases, configure Developer ID signing and Apple notarization in GitHub Actions. Add these repository secrets:
+## 当前状态
 
-- `MACOS_CERTIFICATE_BASE64`: base64-encoded `.p12` containing Developer ID Application, and preferably Developer ID Installer, certificates with private keys.
-- `MACOS_CERTIFICATE_PASSWORD`: password for the `.p12`.
-- `KEYCHAIN_PASSWORD`: temporary CI keychain password.
-- `MACOS_APP_SIGN_IDENTITY`: for example `Developer ID Application: Your Name (TEAMID)`.
-- `MACOS_INSTALLER_SIGN_IDENTITY`: for example `Developer ID Installer: Your Name (TEAMID)`.
-- `APPLE_ID`: Apple ID used for notarization.
-- `APPLE_TEAM_ID`: Apple Developer Team ID.
-- `APPLE_APP_SPECIFIC_PASSWORD`: app-specific password for notarization.
-
-When these secrets are present, the release workflow signs the app, notarizes and staples it, then creates signed/notarized DMG and PKG artifacts.
-
-## Status
-
-This project is in active early development. Builds without the Apple secrets above are ad-hoc signed and intended for local testing only.
+项目持续开发中。问题和功能建议请通过 GitHub Issues 提交。

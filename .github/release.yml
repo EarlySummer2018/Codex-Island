@@ -1,0 +1,31 @@
+changelog:
+  exclude:
+    labels:
+      - 忽略发布说明
+      - skip-changelog
+    authors:
+      - dependabot
+      - dependabot[bot]
+  categories:
+    - title: 重要变更
+      labels:
+        - breaking-change
+        - 重要变更
+    - title: 新增功能
+      labels:
+        - enhancement
+        - feature
+        - 功能
+    - title: 问题修复
+      labels:
+        - bug
+        - fix
+        - 修复
+    - title: 文档
+      labels:
+        - documentation
+        - docs
+        - 文档
+    - title: 其他变更
+      labels:
+        - "*"

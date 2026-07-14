@@ -1,6 +1,4 @@
 import AppKit
-import Foundation
-import ImageIO
 import SwiftUI
 
 struct PixelPetView: View {
@@ -17,32 +15,32 @@ struct PixelPetView: View {
     @State private var idleStretchWorkItem: DispatchWorkItem?
 
     var body: some View {
-        furinaFrameView(animation: activeAnimation, frame: currentFrame)
-        .frame(width: size, height: size)
-        .onAppear {
-            startBaseAnimation(animationName)
-        }
-        .onChange(of: animationName) { newAnimation in
-            startBaseAnimation(newAnimation)
-        }
-        .onChange(of: feedTrigger) { trigger in
-            guard trigger != nil else {
-                return
+        petFrameView(animation: activeAnimation, frame: currentFrame)
+            .frame(width: size, height: size)
+            .onAppear {
+                startBaseAnimation(animationName)
             }
+            .onChange(of: animationName) { newAnimation in
+                startBaseAnimation(newAnimation)
+            }
+            .onChange(of: feedTrigger) { trigger in
+                guard trigger != nil else {
+                    return
+                }
 
-            startOneShotAnimation(PetAnimation.feedAnimation(for: level))
-        }
-        .onDisappear {
-            stopAnimation()
-        }
-        .accessibilityLabel("Furina Codex pet")
+                startOneShotAnimation(PetAnimation.feedAnimation(for: level))
+            }
+            .onDisappear {
+                stopAnimation()
+            }
+            .accessibilityLabel("Codex pet")
     }
 
     @ViewBuilder
-    private func furinaFrameView(animation: PetAnimation, frame: Int) -> some View {
-        let atlasState = animation.furinaAtlasState(facingLeft: isFacingLeft)
+    private func petFrameView(animation: PetAnimation, frame: Int) -> some View {
+        let atlasState = animation.petAtlasState(facingLeft: isFacingLeft)
 
-        if let image = FurinaPetAtlas.shared.image(for: atlasState, frame: frame, form: form) {
+        if let image = PetAtlasRepository.shared.image(for: atlasState, frame: frame, form: form) {
             Image(nsImage: image)
                 .interpolation(.none)
                 .resizable()
@@ -70,7 +68,7 @@ struct PixelPetView: View {
         activeAnimation = animation
         currentFrame = 0
 
-        let frameCount = max(animation.furinaFrameCount(facingLeft: isFacingLeft), 1)
+        let frameCount = max(animation.petFrameCount(facingLeft: isFacingLeft), 1)
         var advancedFrames = 0
 
         let timer = Timer(timeInterval: 1.0 / Double(animation.fps), repeats: true) { timer in
@@ -118,78 +116,6 @@ struct PixelPetView: View {
 
         idleStretchWorkItem?.cancel()
         idleStretchWorkItem = nil
-    }
-}
-
-struct FurinaPetFrameKey: Hashable {
-    let state: FurinaPetAtlasState
-    let column: Int
-    let form: PetForm
-}
-
-final class FurinaPetAtlas {
-    static let shared = FurinaPetAtlas()
-
-    private var spriteSheet: CGImage?
-    private var frameCache: [FurinaPetFrameKey: NSImage] = [:]
-    private let frameCacheLimit = 180
-
-    private init() {}
-
-    func image(for state: FurinaPetAtlasState, frame: Int, form: PetForm) -> NSImage? {
-        let column = FurinaPetAtlasSpec.normalizedFrameIndex(frame, for: state)
-        let key = FurinaPetFrameKey(state: state, column: column, form: form)
-
-        if let cached = frameCache[key] {
-            return cached
-        }
-
-        guard let sheet = spriteSheetImage(),
-              sheet.width >= FurinaPetAtlasSpec.atlasWidth,
-              sheet.height >= FurinaPetAtlasSpec.atlasHeight else {
-            return nil
-        }
-
-        let cropRect = CGRect(
-            x: column * FurinaPetAtlasSpec.cellWidth,
-            y: state.row * FurinaPetAtlasSpec.cellHeight,
-            width: FurinaPetAtlasSpec.cellWidth,
-            height: FurinaPetAtlasSpec.cellHeight
-        )
-
-        guard let croppedFrame = sheet.cropping(to: cropRect) else {
-            return nil
-        }
-
-        let frameImage = FurinaPetRecoloring.recoloredImage(croppedFrame, form: form)
-        let image = NSImage(
-            cgImage: frameImage,
-            size: NSSize(
-                width: FurinaPetAtlasSpec.cellWidth,
-                height: FurinaPetAtlasSpec.cellHeight
-            )
-        )
-
-        if frameCache.count >= frameCacheLimit {
-            frameCache.removeAll(keepingCapacity: true)
-        }
-        frameCache[key] = image
-        return image
-    }
-
-    private func spriteSheetImage() -> CGImage? {
-        if let spriteSheet {
-            return spriteSheet
-        }
-
-        guard let dataAsset = NSDataAsset(name: FurinaPetAtlasSpec.assetName),
-              let imageSource = CGImageSourceCreateWithData(dataAsset.data as CFData, nil),
-              let image = CGImageSourceCreateImageAtIndex(imageSource, 0, nil) else {
-            return nil
-        }
-
-        spriteSheet = image
-        return image
     }
 }
 

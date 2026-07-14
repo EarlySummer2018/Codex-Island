@@ -11,6 +11,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        CustomPetCatalog.bootstrap()
         setupStatusItem()
         updateManager.configure()
         AwaitNotificationCoordinator.shared.configure()
@@ -117,6 +118,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(NSMenuItem.separator())
 
+        menu.addItem(
+            withTitle: settings.text(.customPets),
+            action: #selector(openCustomPets),
+            keyEquivalent: ""
+        ).target = self
         menu.addItem(
             withTitle: settings.text(.openCacheDirectory),
             action: #selector(openCacheDirectory),
@@ -264,6 +270,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openCacheDirectory() {
         AppDirectories.open(AppDirectories.appCacheDirectory())
+    }
+
+    @objc private func openCustomPets() {
+        AppDirectories.open(CustomPetCatalog.shared.rootDirectory)
     }
 
     @objc private func openCodexSessions() {

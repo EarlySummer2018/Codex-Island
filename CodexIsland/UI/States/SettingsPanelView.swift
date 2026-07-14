@@ -77,6 +77,28 @@ struct SettingsPanelView: View {
 
             Spacer(minLength: 0)
 
+            Button {
+                AppDirectories.open(CustomPetCatalog.shared.rootDirectory)
+            } label: {
+                Label(settings.text(.customPets), systemImage: "pawprint.fill")
+                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .foregroundStyle(PanelPalette.text)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                    .padding(.horizontal, 8)
+                    .frame(height: 26)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(PanelPalette.control)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .stroke(PanelPalette.magenta.opacity(0.24), lineWidth: 1)
+                    )
+            }
+            .buttonStyle(.plain)
+            .help(settings.text(.customPets))
+
             Button(action: onBack) {
                 Image(systemName: "xmark")
                     .font(.system(size: 12, weight: .bold))

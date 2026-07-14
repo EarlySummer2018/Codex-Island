@@ -788,17 +788,17 @@ final class DesktopPetBehaviorTests: XCTestCase {
         )
     }
 
-    func testFurinaAtlasGeometryMatchesCodexPetsContract() {
-        XCTAssertEqual(FurinaPetAtlasSpec.columns, 8)
-        XCTAssertEqual(FurinaPetAtlasSpec.rows, 9)
-        XCTAssertEqual(FurinaPetAtlasSpec.cellWidth, 192)
-        XCTAssertEqual(FurinaPetAtlasSpec.cellHeight, 208)
-        XCTAssertEqual(FurinaPetAtlasSpec.atlasWidth, 1536)
-        XCTAssertEqual(FurinaPetAtlasSpec.atlasHeight, 1872)
+    func testPetAtlasGeometryMatchesCodexPetsContract() {
+        XCTAssertEqual(PetAtlasSpec.columns, 8)
+        XCTAssertEqual(PetAtlasSpec.rows, 9)
+        XCTAssertEqual(PetAtlasSpec.cellWidth, 192)
+        XCTAssertEqual(PetAtlasSpec.cellHeight, 208)
+        XCTAssertEqual(PetAtlasSpec.atlasWidth, 1536)
+        XCTAssertEqual(PetAtlasSpec.atlasHeight, 1872)
     }
 
     func testFurinaSpritesheetDataAssetIsBundled() {
-        guard let dataAsset = NSDataAsset(name: FurinaPetAtlasSpec.assetName) else {
+        guard let dataAsset = NSDataAsset(name: PetAtlasRepository.bundledAssetName) else {
             XCTFail("Expected bundled Furina spritesheet data asset")
             return
         }
@@ -809,18 +809,18 @@ final class DesktopPetBehaviorTests: XCTestCase {
             return
         }
 
-        XCTAssertEqual(image.width, FurinaPetAtlasSpec.atlasWidth)
-        XCTAssertEqual(image.height, FurinaPetAtlasSpec.atlasHeight)
+        XCTAssertEqual(image.width, PetAtlasSpec.atlasWidth)
+        XCTAssertEqual(image.height, PetAtlasSpec.atlasHeight)
     }
 
-    func testPetAnimationsMapToFurinaAtlasRows() {
-        XCTAssertEqual(PetAnimation.idleBreathe.furinaAtlasState, .idle)
-        XCTAssertEqual(PetAnimation.bubbleThink.furinaAtlasState, .review)
-        XCTAssertEqual(PetAnimation.talkWalk.furinaAtlasState, .running)
-        XCTAssertEqual(PetAnimation.outputBurst.furinaAtlasState, .running)
-        XCTAssertEqual(PetAnimation.awaitJump.furinaAtlasState, .waiting)
-        XCTAssertEqual(PetAnimation.errorFall.furinaAtlasState, .failed)
-        XCTAssertEqual(PetAnimation.dragHover.furinaAtlasState, .jumping)
+    func testPetAnimationsMapToAtlasRows() {
+        XCTAssertEqual(PetAnimation.idleBreathe.petAtlasState, .idle)
+        XCTAssertEqual(PetAnimation.bubbleThink.petAtlasState, .review)
+        XCTAssertEqual(PetAnimation.talkWalk.petAtlasState, .running)
+        XCTAssertEqual(PetAnimation.outputBurst.petAtlasState, .running)
+        XCTAssertEqual(PetAnimation.awaitJump.petAtlasState, .waiting)
+        XCTAssertEqual(PetAnimation.errorFall.petAtlasState, .failed)
+        XCTAssertEqual(PetAnimation.dragHover.petAtlasState, .jumping)
     }
 
     func testPetAnimationsDoNotUseLevelSpecificBodyShapes() {
@@ -840,25 +840,25 @@ final class DesktopPetBehaviorTests: XCTestCase {
         XCTAssertEqual(PetAnimation.idleBreakAnimation(for: 100), .idleStretch)
     }
 
-    func testDirectionalMovementUsesFurinaLeftAndRightRows() {
-        XCTAssertEqual(PetAnimation.talkWalk.furinaAtlasState(facingLeft: nil), .runningRight)
-        XCTAssertEqual(PetAnimation.talkWalk.furinaAtlasState(facingLeft: false), .runningRight)
-        XCTAssertEqual(PetAnimation.talkWalk.furinaAtlasState(facingLeft: true), .runningLeft)
-        XCTAssertEqual(PetAnimation.outputBurst.furinaAtlasState(facingLeft: nil), .runningRight)
-        XCTAssertEqual(PetAnimation.outputBurst.furinaAtlasState(facingLeft: false), .runningRight)
-        XCTAssertEqual(PetAnimation.idleBreathe.furinaAtlasState(facingLeft: true), .idle)
+    func testDirectionalMovementUsesLeftAndRightRows() {
+        XCTAssertEqual(PetAnimation.talkWalk.petAtlasState(facingLeft: nil), .runningRight)
+        XCTAssertEqual(PetAnimation.talkWalk.petAtlasState(facingLeft: false), .runningRight)
+        XCTAssertEqual(PetAnimation.talkWalk.petAtlasState(facingLeft: true), .runningLeft)
+        XCTAssertEqual(PetAnimation.outputBurst.petAtlasState(facingLeft: nil), .runningRight)
+        XCTAssertEqual(PetAnimation.outputBurst.petAtlasState(facingLeft: false), .runningRight)
+        XCTAssertEqual(PetAnimation.idleBreathe.petAtlasState(facingLeft: true), .idle)
     }
 
-    func testFurinaFrameIndexWrapsToAtlasColumns() {
-        XCTAssertEqual(FurinaPetAtlasSpec.visibleColumnCount(for: .idle), 6)
-        XCTAssertEqual(FurinaPetAtlasSpec.visibleColumnCount(for: .waving), 4)
-        XCTAssertEqual(FurinaPetAtlasSpec.visibleColumnCount(for: .jumping), 5)
-        XCTAssertEqual(FurinaPetAtlasSpec.visibleColumnCount(for: .runningRight), 8)
+    func testPetFrameIndexWrapsToAtlasColumns() {
+        XCTAssertEqual(PetAtlasSpec.visibleColumnCount(for: .idle), 6)
+        XCTAssertEqual(PetAtlasSpec.visibleColumnCount(for: .waving), 4)
+        XCTAssertEqual(PetAtlasSpec.visibleColumnCount(for: .jumping), 5)
+        XCTAssertEqual(PetAtlasSpec.visibleColumnCount(for: .runningRight), 8)
 
-        XCTAssertEqual(FurinaPetAtlasSpec.normalizedFrameIndex(5, for: .idle), 5)
-        XCTAssertEqual(FurinaPetAtlasSpec.normalizedFrameIndex(6, for: .idle), 0)
-        XCTAssertEqual(FurinaPetAtlasSpec.normalizedFrameIndex(7, for: .waving), 3)
-        XCTAssertEqual(FurinaPetAtlasSpec.normalizedFrameIndex(8, for: .runningRight), 0)
+        XCTAssertEqual(PetAtlasSpec.normalizedFrameIndex(5, for: .idle), 5)
+        XCTAssertEqual(PetAtlasSpec.normalizedFrameIndex(6, for: .idle), 0)
+        XCTAssertEqual(PetAtlasSpec.normalizedFrameIndex(7, for: .waving), 3)
+        XCTAssertEqual(PetAtlasSpec.normalizedFrameIndex(8, for: .runningRight), 0)
     }
 
     func testRoamingSpeedsFollowStatePriority() {
@@ -900,16 +900,17 @@ final class DesktopPetBehaviorTests: XCTestCase {
         XCTAssertLessThanOrEqual(PetAnimation.awaitJump.fps, 7)
     }
 
-    func testFurinaFrameCacheKeyIncludesForm() {
+    func testBundledPetFrameCacheKeyIncludesForm() {
         XCTAssertNotEqual(
-            FurinaPetFrameKey(state: .idle, column: 0, form: .original),
-            FurinaPetFrameKey(state: .idle, column: 0, form: .fullPink)
+            PetFrameKey(state: .idle, column: 0, source: .bundled(.original)),
+            PetFrameKey(state: .idle, column: 0, source: .bundled(.fullPink))
         )
     }
 
     func testFurinaRecolorChangesOpaquePixelsWithoutChangingTransparentMask() {
-        guard let original = FurinaPetAtlas.shared.image(for: .idle, frame: 0, form: .original),
-              let fullPink = FurinaPetAtlas.shared.image(for: .idle, frame: 0, form: .fullPink),
+        let repository = makeBundledPetRepository()
+        guard let original = repository.image(for: .idle, frame: 0, form: .original),
+              let fullPink = repository.image(for: .idle, frame: 0, form: .fullPink),
               let originalData = rgbaData(from: original),
               let fullPinkData = rgbaData(from: fullPink) else {
             XCTFail("Expected Furina frames to render")
@@ -921,8 +922,9 @@ final class DesktopPetBehaviorTests: XCTestCase {
     }
 
     func testFurinaHairStageDiffersFromHatStage() {
-        guard let hat = FurinaPetAtlas.shared.image(for: .idle, frame: 0, form: .hatPink),
-              let hair = FurinaPetAtlas.shared.image(for: .idle, frame: 0, form: .hairPink),
+        let repository = makeBundledPetRepository()
+        guard let hat = repository.image(for: .idle, frame: 0, form: .hatPink),
+              let hair = repository.image(for: .idle, frame: 0, form: .hairPink),
               let hatData = rgbaData(from: hat),
               let hairData = rgbaData(from: hair) else {
             XCTFail("Expected Furina frames to render")
@@ -1159,6 +1161,15 @@ final class DesktopPetBehaviorTests: XCTestCase {
         let dx = lhs.x - rhs.x
         let dy = lhs.y - rhs.y
         return sqrt(dx * dx + dy * dy)
+    }
+
+    private func makeBundledPetRepository() -> PetAtlasRepository {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CodexIslandBundledPetTests-\(UUID().uuidString)", isDirectory: true)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: root)
+        }
+        return PetAtlasRepository(catalog: CustomPetCatalog(rootDirectory: root))
     }
 
     private func rgbaData(from image: NSImage) -> [UInt8]? {

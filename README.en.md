@@ -1,0 +1,137 @@
+# Codex Island
+
+[中文](README.md)
+
+Codex Island is a macOS top-screen capsule and desktop pet for Codex Desktop. It watches local Codex state and token metadata, keeps the current activity visible, and turns cumulative usage into pet levels and ten visual stages.
+
+## Features
+
+- Persistent top capsule with current-session `IN`, `CACHE`, `OUT`, and `TOTAL` counters.
+- Runtime states for idle, running, waiting for input, ready for review, and errors, with activity details for reasoning, commands, file changes, web search, and reply generation.
+- Pet levels and evolution based on cumulative usage across all local Codex sessions.
+- Large and small capsule styles, desktop pet mode, long-press dragging, and per-display position persistence.
+- Ten-stage custom pets shared by the capsule, expanded panel, desktop pet, and roaming pet.
+- A Rust sidecar that processes token and state metadata without forwarding prompts, user messages, or assistant response text.
+
+## Ten-Stage Custom Pets
+
+The app creates this directory tree on first launch:
+
+```text
+${CODEX_HOME:-$HOME/.codex}/pets/codex-island-stages/
+├── 01-lv00-09/
+├── 02-lv10-19/
+├── 03-lv20-29/
+├── 04-lv30-39/
+├── 05-lv40-49/
+├── 06-lv50-59/
+├── 07-lv60-69/
+├── 08-lv70-79/
+├── 09-lv80-89/
+└── 10-lv90-100/
+```
+
+Choose **Custom Pets** from the menu bar or Settings to open this directory. Each stage accepts one standard Codex pet package:
+
+```text
+01-lv00-09/
+├── pet.json
+└── spritesheet.webp
+```
+
+Example manifest:
+
+```json
+{
+  "id": "ruby",
+  "displayName": "Ruby",
+  "description": "A fluffy orange-and-white cat.",
+  "spritesheetPath": "spritesheet.webp"
+}
+```
+
+The atlas must be a `1536x1872` WebP using an 8 x 9 grid of `192x208` cells. Required frames must be non-empty, unused cells must be fully transparent, and `spritesheetPath` must be a safe relative path inside the stage directory.
+
+Resource priority:
+
+1. Use the current stage when its custom package is valid.
+2. Otherwise inherit the valid stage-one custom pet.
+3. If stage one is also missing or invalid, use the built-in default pet for the current level.
+
+Custom resources are scanned at startup. Fully quit and restart Codex Island after replacing files; hot reload is intentionally not supported.
+
+## Requirements
+
+- macOS 13 or later
+- Xcode 26.5 or compatible command line tools
+- Rust toolchain
+- XcodeGen 2.45.4 or later
+
+```bash
+brew install xcodegen
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+## Development
+
+```bash
+git clone https://github.com/EarlySummer2018/Codex-Island.git
+cd Codex-Island
+make bootstrap
+make build-macos
+open ~/Library/Developer/Xcode/DerivedData/CodexIsland-*/Build/Products/Debug/CodexIsland.app
+```
+
+Useful verification commands:
+
+```bash
+make test-rust
+make test-ipc
+make test-app-runtime
+make verify
+```
+
+## Architecture and Privacy
+
+```text
+Codex App-Server / ~/.codex/sessions/**/*.jsonl
+                    |
+                    v
+          codex-watcher (Rust)
+                    |
+                    v
+             Unix Socket IPC
+                    |
+                    v
+        CodexIsland.app (Swift/AppKit/SwiftUI)
+```
+
+The sidecar prefers Codex App-Server events and falls back to sanitized local JSONL metadata when needed. It does not modify Codex session files or forward prompt, user-message, or assistant-response content to the Swift app.
+
+## Releases
+
+The release version comes from `MARKETING_VERSION` in `project.yml`. The version tag must match it:
+
+```bash
+git tag v1.1.2
+git push origin v1.1.2
+```
+
+GitHub Actions validates the version, runs Rust and Swift tests, builds universal and x86_64 macOS applications, and publishes `.zip`, `.dmg`, `.pkg`, SHA-256 checksums, and Chinese release notes.
+
+Developer ID signing and notarization use these repository secrets:
+
+- `MACOS_CERTIFICATE_BASE64`
+- `MACOS_CERTIFICATE_PASSWORD`
+- `KEYCHAIN_PASSWORD`
+- `MACOS_APP_SIGN_IDENTITY`
+- `MACOS_INSTALLER_SIGN_IDENTITY`
+- `APPLE_ID`
+- `APPLE_TEAM_ID`
+- `APPLE_APP_SPECIFIC_PASSWORD`
+
+Without these secrets, release artifacts are ad-hoc signed and intended for local testing.
+
+## Status
+
+The project is under active development. Please report bugs and feature requests through GitHub Issues.
