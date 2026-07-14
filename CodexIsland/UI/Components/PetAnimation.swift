@@ -124,8 +124,7 @@ enum PetAnimation: String, Equatable {
     }
 }
 
-enum FurinaPetAtlasSpec {
-    static let assetName = "FurinaPetSpritesheet"
+enum PetAtlasSpec {
     static let columns = 8
     static let rows = 9
     static let cellWidth = 192
@@ -133,13 +132,13 @@ enum FurinaPetAtlasSpec {
     static let atlasWidth = columns * cellWidth
     static let atlasHeight = rows * cellHeight
 
-    static func normalizedFrameIndex(_ frame: Int, for state: FurinaPetAtlasState) -> Int {
+    static func normalizedFrameIndex(_ frame: Int, for state: PetAtlasState) -> Int {
         let visibleColumns = max(visibleColumnCount(for: state), 1)
         let remainder = frame % visibleColumns
         return remainder >= 0 ? remainder : remainder + visibleColumns
     }
 
-    static func visibleColumnCount(for state: FurinaPetAtlasState) -> Int {
+    static func visibleColumnCount(for state: PetAtlasState) -> Int {
         switch state {
         case .idle, .waiting, .running, .review:
             return 6
@@ -153,7 +152,7 @@ enum FurinaPetAtlasSpec {
     }
 }
 
-enum FurinaPetAtlasState: Int, CaseIterable, Equatable {
+enum PetAtlasState: Int, CaseIterable, Equatable {
     case idle = 0
     case runningRight = 1
     case runningLeft = 2
@@ -170,7 +169,7 @@ enum FurinaPetAtlasState: Int, CaseIterable, Equatable {
 }
 
 extension PetAnimation {
-    var furinaAtlasState: FurinaPetAtlasState {
+    var petAtlasState: PetAtlasState {
         switch self {
         case .idleBreathe:
             return .idle
@@ -189,7 +188,7 @@ extension PetAnimation {
         }
     }
 
-    var usesDirectionalFurinaMovementRows: Bool {
+    var usesDirectionalMovementRows: Bool {
         switch self {
         case .talkWalk, .outputBurst:
             return true
@@ -198,15 +197,15 @@ extension PetAnimation {
         }
     }
 
-    func furinaAtlasState(facingLeft: Bool?) -> FurinaPetAtlasState {
-        guard usesDirectionalFurinaMovementRows else {
-            return furinaAtlasState
+    func petAtlasState(facingLeft: Bool?) -> PetAtlasState {
+        guard usesDirectionalMovementRows else {
+            return petAtlasState
         }
 
         return (facingLeft ?? false) ? .runningLeft : .runningRight
     }
 
-    func furinaFrameCount(facingLeft: Bool?) -> Int {
-        FurinaPetAtlasSpec.visibleColumnCount(for: furinaAtlasState(facingLeft: facingLeft))
+    func petFrameCount(facingLeft: Bool?) -> Int {
+        PetAtlasSpec.visibleColumnCount(for: petAtlasState(facingLeft: facingLeft))
     }
 }

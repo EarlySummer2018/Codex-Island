@@ -12,7 +12,8 @@ final class EventBus: ObservableObject {
     @Published private(set) var latestToken: TokenSnapshot?
     @Published private(set) var activeSessionId: String?
 
-    private let minimumActiveDisplayDuration: TimeInterval = 1.4
+    private let minimumActiveDisplayDuration: TimeInterval
+    private let now: () -> Date
     private let maxTrackedSessions = 32
     private var sessionStates: [String: CodexSessionState] = [:]
     private var sessionActivities: [String: CodexActivityKind] = [:]
@@ -22,6 +23,14 @@ final class EventBus: ObservableObject {
     private var sessionLastActivity: [String: Date] = [:]
     private var activeStateEnteredAt: Date?
     private var pendingRestTasks: [String: Task<Void, Never>] = [:]
+
+    init(
+        minimumActiveDisplayDuration: TimeInterval = 1.4,
+        now: @escaping () -> Date = Date.init
+    ) {
+        self.minimumActiveDisplayDuration = minimumActiveDisplayDuration
+        self.now = now
+    }
 
     var isActive: Bool {
         switch sessionState {
@@ -49,6 +58,9 @@ final class EventBus: ObservableObject {
     }
 
     private func applyStateEvent(_ event: SessionStateEvent) {
+        let previousActiveSessionId = activeSessionId
+        let previousActiveWasResting = activeSessionIsResting
+
         sessionStates[event.sessionId] = event.state
         sessionActivities[event.sessionId] = event.activityKind
         sessionLastActivity[event.sessionId] = event.timestamp
@@ -65,14 +77,14 @@ final class EventBus: ObservableObject {
             sessionAwaitReasons.removeValue(forKey: event.sessionId)
         }
 
-        if event.state.shouldPromoteToFront {
-            activeSessionId = event.sessionId
-            activeStateEnteredAt = Date()
-        } else if activeSessionId == nil || activeSessionId == event.sessionId {
-            activeSessionId = bestSessionId()
-            if activeSessionId == nil || activeSessionIsResting {
-                activeStateEnteredAt = nil
+        activeSessionId = bestSessionId()
+        if let activeSessionId,
+           (sessionStates[activeSessionId] ?? .notLoaded).shouldPromoteToFront {
+            if activeSessionId != previousActiveSessionId || previousActiveWasResting {
+                activeStateEnteredAt = now()
             }
+        } else {
+            activeStateEnteredAt = nil
         }
 
         applyActiveSession()
@@ -86,11 +98,11 @@ final class EventBus: ObservableObject {
             return false
         }
 
-        return Date().timeIntervalSince(activeStateEnteredAt) < minimumActiveDisplayDuration
+        return now().timeIntervalSince(activeStateEnteredAt) < minimumActiveDisplayDuration
     }
 
     private func scheduleRestingState(_ event: SessionStateEvent) {
-        let elapsed = activeStateEnteredAt.map { Date().timeIntervalSince($0) } ?? 0
+        let elapsed = activeStateEnteredAt.map { now().timeIntervalSince($0) } ?? 0
         let delay = max(0, minimumActiveDisplayDuration - elapsed)
 
         pendingRestTasks[event.sessionId] = Task { [weak self] in
@@ -116,17 +128,27 @@ final class EventBus: ObservableObject {
         sessionTokens[snapshot.sessionId] = snapshot
         sessionLastActivity[snapshot.sessionId] = snapshot.timestamp
 
-        if activeSessionId == nil || activeSessionIsResting {
-            activeSessionId = snapshot.sessionId
-        }
+        activeSessionId = bestSessionId()
+        applyActiveSession()
 
         let isActiveSnapshot = activeSessionId == snapshot.sessionId
         TokenStore.shared.update(with: snapshot, isActive: isActiveSnapshot)
-
-        if isActiveSnapshot {
-            latestToken = snapshot
-        }
         pruneTrackedSessions()
+    }
+
+    func handleRuntimeDisconnected() {
+        for task in pendingRestTasks.values {
+            task.cancel()
+        }
+        pendingRestTasks.removeAll()
+        sessionStates.removeAll()
+        sessionActivities.removeAll()
+        sessionTurnStates.removeAll()
+        sessionAwaitReasons.removeAll()
+        sessionLastActivity = sessionTokens.mapValues(\.timestamp)
+        activeStateEnteredAt = nil
+        activeSessionId = bestSessionId()
+        applyActiveSession()
     }
 
     private func applyActiveSession() {

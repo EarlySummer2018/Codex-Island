@@ -2,9 +2,26 @@ import SwiftUI
 
 struct TokenCard: View {
     let title: String
-    let value: Int
+    private let value: Int?
+    private let textValue: String?
     let color: Color
     var note: String?
+
+    init(title: String, value: Int, color: Color, note: String? = nil) {
+        self.title = title
+        self.value = value
+        self.textValue = nil
+        self.color = color
+        self.note = note
+    }
+
+    init(title: String, text: String, color: Color, note: String? = nil) {
+        self.title = title
+        self.value = nil
+        self.textValue = text
+        self.color = color
+        self.note = note
+    }
 
     var body: some View {
         VStack(spacing: 3) {
@@ -15,12 +32,22 @@ struct TokenCard: View {
                 .minimumScaleFactor(0.65)
                 .frame(maxWidth: .infinity)
 
-            AnimatedTokenCounter(
-                value: value,
-                font: .system(size: 14, weight: .bold, design: .monospaced),
-                color: color,
-                alignment: .center
-            )
+            Group {
+                if let value {
+                    AnimatedTokenCounter(
+                        value: value,
+                        font: .system(size: 14, weight: .bold, design: .monospaced),
+                        color: color,
+                        alignment: .center
+                    )
+                } else {
+                    Text(textValue ?? "0.0%")
+                        .font(.system(size: 14, weight: .bold, design: .monospaced))
+                        .foregroundStyle(color)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                }
+            }
             .frame(height: 16)
 
             Text(note ?? " ")

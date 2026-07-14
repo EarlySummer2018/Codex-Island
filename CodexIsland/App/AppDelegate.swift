@@ -11,6 +11,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        PetAtlasRepository.bootstrap()
         setupStatusItem()
         updateManager.configure()
         AwaitNotificationCoordinator.shared.configure()
@@ -118,6 +119,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem.separator())
 
         menu.addItem(
+            withTitle: settings.text(.customPets),
+            action: #selector(openCustomPets),
+            keyEquivalent: ""
+        ).target = self
+        menu.addItem(
             withTitle: settings.text(.openCacheDirectory),
             action: #selector(openCacheDirectory),
             keyEquivalent: ""
@@ -147,6 +153,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(NSMenuItem.separator())
 
+        menu.addItem(
+            withTitle: settings.text(.restartApp),
+            action: #selector(restartApp),
+            keyEquivalent: ""
+        ).target = self
         menu.addItem(
             withTitle: settings.text(.quit),
             action: #selector(quit),
@@ -266,6 +277,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         AppDirectories.open(AppDirectories.appCacheDirectory())
     }
 
+    @objc private func openCustomPets() {
+        AppDirectories.open(CustomPetCatalog.shared.rootDirectory)
+    }
+
     @objc private func openCodexSessions() {
         AppDirectories.open(AppDirectories.codexSessionsDirectory())
     }
@@ -284,6 +299,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func quit() {
         NSApp.terminate(nil)
+    }
+
+    @objc private func restartApp() {
+        AppRelauncher.restart()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(

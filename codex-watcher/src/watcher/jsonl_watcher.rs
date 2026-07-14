@@ -1,5 +1,6 @@
 use crate::token_usage::{context_used_tokens, model_context_window, token_count_value};
 use anyhow::{Context, Result};
+use chrono::{DateTime, Utc};
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Serialize;
 use serde_json::Value;
@@ -19,6 +20,8 @@ pub struct RawJsonlLine {
     pub session_id: Option<String>,
     pub event_type: String,
     pub payload_type: Option<String>,
+    pub timestamp: Option<DateTime<Utc>>,
+    pub is_replay: bool,
     pub parsed: Value,
 }
 
@@ -27,6 +30,7 @@ struct FileTailState {
     path: PathBuf,
     offset: u64,
     session_id: Option<String>,
+    identity_from_metadata: bool,
 }
 
 pub struct JsonlWatcher {
@@ -120,6 +124,7 @@ impl JsonlWatcher {
                     path: path.clone(),
                     offset,
                     session_id: session_id_from_path(&path),
+                    identity_from_metadata: false,
                 },
             );
 
@@ -153,6 +158,7 @@ impl JsonlWatcher {
         if let Some(state) = self.tailing.get_mut(&path) {
             if session_id.is_some() {
                 state.session_id = session_id;
+                state.identity_from_metadata = true;
             }
         }
 
@@ -174,6 +180,7 @@ impl JsonlWatcher {
                         path: path.clone(),
                         offset: 0,
                         session_id: session_id_from_path(&path),
+                        identity_from_metadata: false,
                     });
                     self.tail_file(&path).await;
                 }
@@ -232,6 +239,7 @@ impl JsonlWatcher {
                         path: path.clone(),
                         offset: 0,
                         session_id: session_id_from_path(&path),
+                        identity_from_metadata: false,
                     },
                 );
             }
@@ -249,6 +257,7 @@ impl JsonlWatcher {
                 path: path.to_path_buf(),
                 offset: 0,
                 session_id: session_id_from_path(path),
+                identity_from_metadata: false,
             });
 
         let Ok(metadata) = std::fs::metadata(&state.path) else {
@@ -303,8 +312,11 @@ impl JsonlWatcher {
 
             match serde_json::from_str::<Value>(trimmed) {
                 Ok(parsed) => {
-                    if let Some(session_id) = extract_session_id(&parsed) {
-                        state.session_id = Some(session_id);
+                    if !state.identity_from_metadata {
+                        if let Some(session_id) = extract_session_id(&parsed) {
+                            state.session_id = Some(session_id);
+                            state.identity_from_metadata = true;
+                        }
                     }
 
                     let Some(sanitized) = sanitize_jsonl_event(&parsed) else {
@@ -316,6 +328,8 @@ impl JsonlWatcher {
                         session_id: state.session_id.clone(),
                         event_type: event_type(&sanitized).unwrap_or("unknown").to_string(),
                         payload_type: payload_type(&sanitized).map(ToOwned::to_owned),
+                        timestamp: event_timestamp(&sanitized),
+                        is_replay: false,
                         parsed: sanitized,
                     };
 
@@ -510,6 +524,16 @@ fn sanitize_event_msg(parsed: &Value, timestamp: Option<Value>) -> Option<Value>
         "task_started" | "task_complete" => {
             vec![("type", Some(Value::String(payload_type.to_string())))]
         }
+        "turn_aborted" => vec![
+            ("type", Some(Value::String(payload_type.to_string()))),
+            ("turn_id", payload.get("turn_id").cloned()),
+            (
+                "reason",
+                Some(Value::String(normalized_abort_reason(
+                    payload.get("reason").and_then(Value::as_str),
+                ))),
+            ),
+        ],
         "agent_message" => vec![
             ("type", Some(Value::String(payload_type.to_string()))),
             ("phase", payload.get("phase").cloned()),
@@ -538,6 +562,15 @@ fn sanitize_event_msg(parsed: &Value, timestamp: Option<Value>) -> Option<Value>
     };
 
     Some(json_object("event_msg", timestamp, fields))
+}
+
+fn normalized_abort_reason(reason: Option<&str>) -> String {
+    match reason {
+        Some("interrupted") => "interrupted",
+        Some("cancelled") | Some("canceled") => "cancelled",
+        _ => "unknown",
+    }
+    .to_string()
 }
 
 fn token_count_json_value(payload: &Value, internal_key: &str) -> Option<Value> {
@@ -593,6 +626,14 @@ fn payload_type(parsed: &Value) -> Option<&str> {
         .and_then(|value| value.as_str())
 }
 
+fn event_timestamp(parsed: &Value) -> Option<DateTime<Utc>> {
+    parsed
+        .get("timestamp")
+        .and_then(Value::as_str)
+        .and_then(|timestamp| DateTime::parse_from_rfc3339(timestamp).ok())
+        .map(|timestamp| timestamp.with_timezone(&Utc))
+}
+
 #[derive(Debug, Clone)]
 struct SeedLine {
     line_number: usize,
@@ -604,6 +645,7 @@ fn seed_latest_lines_from_file(path: &Path) -> Result<(Option<String>, Vec<SeedL
     let reader = StdBufReader::new(file);
 
     let mut session_id = session_id_from_path(path);
+    let mut identity_from_metadata = false;
     let mut last_token_count: Option<SeedLine> = None;
     let mut last_state_event: Option<SeedLine> = None;
 
@@ -619,8 +661,11 @@ fn seed_latest_lines_from_file(path: &Path) -> Result<(Option<String>, Vec<SeedL
             continue;
         };
 
-        if let Some(extracted_session_id) = extract_session_id(&parsed) {
-            session_id = Some(extracted_session_id);
+        if !identity_from_metadata {
+            if let Some(extracted_session_id) = extract_session_id(&parsed) {
+                session_id = Some(extracted_session_id);
+                identity_from_metadata = true;
+            }
         }
 
         let Some(sanitized) = sanitize_jsonl_event(&parsed) else {
@@ -636,6 +681,8 @@ fn seed_latest_lines_from_file(path: &Path) -> Result<(Option<String>, Vec<SeedL
             session_id: session_id.clone(),
             event_type: event_type(&sanitized).unwrap_or("unknown").to_string(),
             payload_type: Some(payload_type.clone()),
+            timestamp: event_timestamp(&sanitized),
+            is_replay: true,
             parsed: sanitized,
         };
 
@@ -681,8 +728,8 @@ fn is_state_seed_payload_type(payload_type: &str) -> bool {
             | "web_search"
             | "tool_call"
             | "patch_apply_end"
-            | "token_count"
             | "assistant_message_stop"
+            | "turn_aborted"
             | "awaiting_approval"
             | "tool_approval"
             | "error"
@@ -840,6 +887,26 @@ mod tests {
     }
 
     #[test]
+    fn keeps_turn_aborted_metadata_without_private_content() {
+        let aborted = sanitize_jsonl_event(&json!({
+            "timestamp": "2026-07-13T12:02:09.347Z",
+            "type": "event_msg",
+            "payload": {
+                "type": "turn_aborted",
+                "turn_id": "turn-1",
+                "reason": "interrupted",
+                "message": "private"
+            }
+        }))
+        .unwrap();
+
+        assert_eq!(aborted["payload"]["type"], "turn_aborted");
+        assert_eq!(aborted["payload"]["turn_id"], "turn-1");
+        assert_eq!(aborted["payload"]["reason"], "interrupted");
+        assert!(aborted["payload"].get("message").is_none());
+    }
+
+    #[test]
     fn keeps_agent_message_phase_without_text() {
         let value = json!({
             "type": "event_msg",
@@ -971,6 +1038,56 @@ mod tests {
             seed_lines[0].raw.session_id.as_deref(),
             Some("019f0d79-a330-7352-97a3-9032d7b038db")
         );
+    }
+
+    #[test]
+    fn seeds_token_and_aborted_terminal_state_without_replaying_token_as_state() {
+        let path =
+            temp_jsonl_path("rollout-2026-07-13T18-28-21-019f5b05-4bc3-7a72-b75a-bfe3ca3c9633");
+        write_jsonl_lines(
+            &path,
+            &[
+                json!({
+                    "timestamp": "2026-07-13T12:01:59.939Z",
+                    "type": "event_msg",
+                    "payload": { "type": "patch_apply_end", "success": true }
+                }),
+                json!({
+                    "timestamp": "2026-07-13T12:01:59.966Z",
+                    "type": "event_msg",
+                    "payload": {
+                        "type": "token_count",
+                        "input_tokens": 58_725_289,
+                        "cached_input_tokens": 56_959_488,
+                        "output_tokens": 138_586
+                    }
+                }),
+                json!({
+                    "timestamp": "2026-07-13T12:02:09.347Z",
+                    "type": "event_msg",
+                    "payload": {
+                        "type": "turn_aborted",
+                        "turn_id": "turn-1",
+                        "reason": "interrupted"
+                    }
+                }),
+            ],
+        );
+
+        let (_, seed_lines) = seed_latest_lines_from_file(&path).unwrap();
+        let _ = fs::remove_file(&path);
+
+        assert_eq!(seed_lines.len(), 2);
+        assert_eq!(
+            seed_lines[0].raw.payload_type.as_deref(),
+            Some("token_count")
+        );
+        assert_eq!(
+            seed_lines[1].raw.payload_type.as_deref(),
+            Some("turn_aborted")
+        );
+        assert!(seed_lines.iter().all(|line| line.raw.is_replay));
+        assert!(seed_lines.iter().all(|line| line.raw.timestamp.is_some()));
     }
 
     #[test]

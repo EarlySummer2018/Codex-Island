@@ -8,18 +8,16 @@ final class NotchIslandPanel: NSPanel {
     private let contentModel = NotchIslandContentModel()
     private let positionStore = IslandPositionStore()
     private let settings = AppSettingsStore.shared
-    private var currentShape: IslandShape = .pill
-    private var restingShape: IslandShape = .pill
-    private var isHovered = false
+    private var transitionState = IslandWindowTransitionState(restingShape: .pill)
     private var isPressingForDrag = false
     private var isDragging = false
     private var dragStartMouseLocation: NSPoint = .zero
     private var dragStartFrame: NSRect = .zero
     private var dragResistanceScreen: NSScreen?
+    private var suppressHoverExpansionUntilMouseExit = false
     private var outsideClickGlobalMonitor: Any?
     private var outsideClickLocalMonitor: Any?
-    private var stableAnchorMidX: CGFloat?
-    private var hoverAnchorMidX: CGFloat?
+    private var anchorState = IslandWindowAnchorState()
     private var cancellables = Set<AnyCancellable>()
 
     private init() {
@@ -29,6 +27,8 @@ final class NotchIslandPanel: NSPanel {
             backing: .buffered,
             defer: false
         )
+
+        transitionState.reset(restingShape: .pill)
 
         level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.statusWindow)) + 1)
         backgroundColor = .clear
@@ -45,13 +45,9 @@ final class NotchIslandPanel: NSPanel {
             .fullScreenAuxiliary
         ]
 
-        let rootView = NotchIslandView(
-            model: contentModel,
-            onRestingShapeChanged: { [weak self] shape in
-                self?.setRestingShape(shape)
-            }
-        )
+        let rootView = NotchIslandView(model: contentModel)
         let hostingView = NotchIslandHostingView(rootView: rootView)
+        IslandHostingSizingPolicy.configure(hostingView)
         hostingView.onHoverChanged = { [weak self] hovered in
             self?.setHovered(hovered)
         }
@@ -64,7 +60,6 @@ final class NotchIslandPanel: NSPanel {
         contentView = hostingView
 
         observeSettings()
-        relayout(animated: false)
 
         NotificationCenter.default.addObserver(
             self,
@@ -89,7 +84,8 @@ final class NotchIslandPanel: NSPanel {
         }
 
         resetInteractionStateForVisibility()
-        relayout(animated: false, anchorsToCurrentTopEdge: false)
+        anchorState.invalidate()
+        relayout(animated: false, resolvesAnchor: true)
         orderFrontRegardless()
     }
 
@@ -99,23 +95,23 @@ final class NotchIslandPanel: NSPanel {
         contentModel.isExpanded = false
         contentModel.isExpandedContainer = false
         contentModel.expandedMode = .dashboard
+        transitionState.reset(restingShape: transitionState.restingShape)
         stopOutsideClickMonitoring()
         orderOut(nil)
     }
 
     func transition(
         to shape: IslandShape,
-        animated: Bool = true,
-        anchorMidX: CGFloat? = nil,
-        completion: (() -> Void)? = nil
+        animated: Bool = true
     ) {
-        currentShape = shape
-        relayout(animated: animated, completion: completion, anchorMidX: anchorMidX)
+        transitionState.setCurrentShape(shape)
+        relayout(animated: animated)
     }
 
     func resetPosition() {
         positionStore.resetAll()
-        relayout(animated: true, anchorsToCurrentTopEdge: false)
+        anchorState.invalidate()
+        relayout(animated: true, resolvesAnchor: true)
     }
 
     func desktopPetAnchorPoint() -> NSPoint {
@@ -130,14 +126,18 @@ final class NotchIslandPanel: NSPanel {
         settings.$capsuleStyle
             .dropFirst()
             .sink { [weak self] _ in
-                self?.relayout(animated: true)
+                DispatchQueue.main.async {
+                    self?.applyCapsuleStyleChange()
+                }
             }
             .store(in: &cancellables)
 
         settings.$isDesktopPetEnabled
             .dropFirst()
             .sink { [weak self] _ in
-                self?.relayout(animated: true)
+                DispatchQueue.main.async {
+                    self?.relayout(animated: true)
+                }
             }
             .store(in: &cancellables)
 
@@ -162,14 +162,7 @@ final class NotchIslandPanel: NSPanel {
                 self?.handleExpansionTriggerChanged(trigger)
             }
             .store(in: &cancellables)
-    }
 
-    private func setRestingShape(_ shape: IslandShape) {
-        restingShape = shape
-
-        if !isHovered {
-            transition(to: shape)
-        }
     }
 
     private func setHovered(_ hovered: Bool) {
@@ -182,21 +175,28 @@ final class NotchIslandPanel: NSPanel {
         }
 
         if !hovered {
+            suppressHoverExpansionUntilMouseExit = false
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
                 self?.syncHoverStateWithMouseLocation()
             }
             return
         }
 
-        guard !isHovered else {
+        guard !suppressHoverExpansionUntilMouseExit else {
             return
         }
 
-        expandForHover()
+        guard !transitionState.isExpansionActive else {
+            return
+        }
+
+        expandForInteraction(trigger: .hover)
     }
 
     private func syncHoverStateWithMouseLocation() {
-        guard settings.capsuleExpansionTrigger == .hover else {
+        guard isVisible,
+              settings.isCapsuleVisible,
+              settings.capsuleExpansionTrigger == .hover else {
             return
         }
 
@@ -206,67 +206,87 @@ final class NotchIslandPanel: NSPanel {
 
         let isMouseInside = frame.insetBy(dx: -2, dy: -2).contains(NSEvent.mouseLocation)
 
+        if suppressHoverExpansionUntilMouseExit {
+            guard !isMouseInside else {
+                return
+            }
+            suppressHoverExpansionUntilMouseExit = false
+        }
+
         if isMouseInside {
-            if !isHovered {
-                expandForHover()
+            if !transitionState.isExpansionActive {
+                expandForInteraction(trigger: .hover)
             } else {
                 transition(to: .expanded)
             }
             return
         }
 
-        guard isHovered else {
+        guard transitionState.isExpansionActive else {
             return
         }
 
-        collapseFromHover()
+        collapseFromInteraction()
     }
 
-    private func expandForHover() {
-        isHovered = true
+    private func expandForInteraction(trigger: CapsuleExpansionTrigger) {
+        guard transitionState.activateExpansion(for: trigger) else {
+            return
+        }
+
         contentModel.isExpanded = false
         contentModel.isExpandedContainer = true
-        let anchorMidX = stableAnchorMidX ?? frame.midX
-        hoverAnchorMidX = anchorMidX
-        if settings.capsuleExpansionTrigger == .click {
+        if trigger == .click {
             startOutsideClickMonitoring()
         }
 
-        transition(to: .expanded, anchorMidX: anchorMidX) { [weak self] in
-            guard let self,
-                  self.isHovered,
-                  self.currentShape == .expanded,
-                  !self.isDragging,
-                  !self.isPressingForDrag else {
-                return
-            }
-
-            self.contentModel.isExpanded = true
-        }
+        transition(to: .expanded)
     }
 
-    private func collapseFromHover() {
-        isHovered = false
+    private func collapseFromInteraction() {
+        transitionState.deactivateExpansion()
         contentModel.isExpanded = false
         contentModel.expandedMode = .dashboard
         stopOutsideClickMonitoring()
-        let anchorMidX = stableAnchorMidX ?? frame.midX
-        stableAnchorMidX = anchorMidX
-        hoverAnchorMidX = anchorMidX
 
-        transition(to: restingShape, anchorMidX: anchorMidX) { [weak self] in
-            guard let self,
-                  !self.isHovered,
-                  self.currentShape == self.restingShape else {
-                return
-            }
+        transition(to: transitionState.restingShape)
+    }
 
-            self.contentModel.isExpandedContainer = false
-            self.hoverAnchorMidX = nil
+    private func applyCapsuleStyleChange() {
+        guard isVisible, settings.isCapsuleVisible else {
+            return
         }
+
+        if transitionState.isExpansionActive || transitionState.currentShape == .expanded {
+            suppressHoverExpansionUntilMouseExit = settings.capsuleExpansionTrigger == .hover
+            collapseFromInteraction()
+            return
+        }
+
+        transition(to: transitionState.restingShape)
     }
 
     @objc private func screenParametersChanged() {
+        let screens = NSScreen.screens
+        guard let anchor = anchorState.anchor,
+              let anchoredScreen = screens.first(where: {
+                  $0.codexIslandIdentifier == anchor.screenIdentifier
+              }) else {
+            anchorState.invalidate()
+            relayout(animated: false, resolvesAnchor: true)
+            return
+        }
+
+        let notchFrame = calculateNotchFrame(for: anchoredScreen)
+        let currentSize = calculateWindowFrame(
+            shape: transitionState.currentShape,
+            notchFrame: notchFrame,
+            screen: anchoredScreen
+        ).size
+        anchorState.preserveForScreenChange(
+            usableFrame: usableFrame(for: anchoredScreen),
+            currentSize: currentSize
+        )
         relayout(animated: false)
     }
 
@@ -325,6 +345,7 @@ final class NotchIslandPanel: NSPanel {
     }
 
     private func beginDrag(at location: NSPoint) {
+        transitionState.invalidateTransitions()
         isDragging = true
         dragStartMouseLocation = location
         dragStartFrame = frame
@@ -354,20 +375,24 @@ final class NotchIslandPanel: NSPanel {
 
         isDragging = false
         dragResistanceScreen = nil
-        setPressingForDrag(false)
         if savePosition {
-            stableAnchorMidX = frame.midX
             saveCurrentPosition()
         }
+        setPressingForDrag(false)
+        transition(
+            to: transitionState.isExpansionActive
+                ? .expanded
+                : transitionState.restingShape
+        )
     }
 
     private func handleCapsuleClick() {
         guard settings.capsuleExpansionTrigger == .click,
-              currentShape != .expanded else {
+              transitionState.currentShape != .expanded else {
             return
         }
 
-        expandForHover()
+        expandForInteraction(trigger: .click)
     }
 
     private func handleExpansionTriggerChanged(_ trigger: CapsuleExpansionTrigger) {
@@ -377,8 +402,8 @@ final class NotchIslandPanel: NSPanel {
         case .hover:
             syncHoverStateWithMouseLocation()
         case .click:
-            if currentShape == .expanded {
-                collapseFromHover()
+            if transitionState.currentShape == .expanded {
+                collapseFromInteraction()
             }
         }
     }
@@ -422,12 +447,12 @@ final class NotchIslandPanel: NSPanel {
 
     private func collapseForOutsideClick(at point: NSPoint) {
         guard settings.capsuleExpansionTrigger == .click,
-              currentShape == .expanded,
+              transitionState.currentShape == .expanded,
               !frame.contains(point) else {
             return
         }
 
-        collapseFromHover()
+        collapseFromInteraction()
     }
 
     private func screenLocation(for event: NSEvent) -> NSPoint {
@@ -446,14 +471,33 @@ final class NotchIslandPanel: NSPanel {
             return
         }
 
-        positionStore.save(frame: frame, on: screen, usableFrame: usableFrame(for: screen))
+        let anchor = anchorState.updateAfterDrag(
+            screenIdentifier: screen.codexIslandIdentifier,
+            frame: frame
+        )
+
+        let notchFrame = calculateNotchFrame(for: screen)
+        let restingSize = calculateWindowFrame(
+            shape: transitionState.restingShape,
+            notchFrame: notchFrame,
+            screen: screen
+        ).size
+        let restingFrame = IslandWindowGeometry.frame(
+            size: restingSize,
+            anchoredTo: anchor
+        )
+        positionStore.save(
+            frame: restingFrame,
+            on: screen,
+            usableFrame: usableFrame(for: screen)
+        )
     }
 
     private func resetInteractionStateForVisibility() {
-        isHovered = false
+        transitionState.reset(restingShape: .pill)
         isPressingForDrag = false
         isDragging = false
-        currentShape = restingShape
+        suppressHoverExpansionUntilMouseExit = false
         contentModel.isExpanded = false
         contentModel.isExpandedContainer = false
         contentModel.expandedMode = .dashboard
@@ -462,67 +506,123 @@ final class NotchIslandPanel: NSPanel {
 
     private func relayout(
         animated: Bool,
-        completion: (() -> Void)? = nil,
-        anchorsToCurrentTopEdge: Bool = true,
-        anchorMidX: CGFloat? = nil
+        resolvesAnchor: Bool = false
     ) {
         guard settings.isCapsuleVisible else {
+            transitionState.invalidateTransitions()
             orderOut(nil)
-            completion?()
             return
         }
 
         guard let screen = targetScreen() else {
-            completion?()
+            transitionState.invalidateTransitions()
             return
         }
 
         let notchFrame = calculateNotchFrame(for: screen)
         let proposedWindowFrame = calculateWindowFrame(
-            shape: currentShape,
+            shape: transitionState.currentShape,
             notchFrame: notchFrame,
             screen: screen
         )
-        let effectiveAnchorMidX = anchorMidX ?? hoverAnchorMidX
-        let anchoredWindowFrame = anchorsToCurrentTopEdge
-            ? frameAnchoredToCurrentTopEdgeWhenVisible(
-                proposedWindowFrame,
-                on: screen,
-                anchorMidX: effectiveAnchorMidX
+        let screenIdentifier = screen.codexIslandIdentifier
+        if anchorState.needsResolution(
+            for: screenIdentifier,
+            forced: resolvesAnchor
+        ) {
+            let restingWindowFrame = calculateWindowFrame(
+                shape: transitionState.restingShape,
+                notchFrame: notchFrame,
+                screen: screen
             )
-            : proposedWindowFrame
-        if animated {
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = currentShape == .expanded ? 0.30 : 0.25
-                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                animator().setFrame(anchoredWindowFrame, display: true)
-            } completionHandler: {
-                self.updateStableAnchorIfNeeded(frame: anchoredWindowFrame)
-                completion?()
-            }
-        } else {
-            setFrame(anchoredWindowFrame, display: true)
-            updateStableAnchorIfNeeded(frame: anchoredWindowFrame)
-            completion?()
+            anchorState.resolve(
+                screenIdentifier: screenIdentifier,
+                restingFrame: restingWindowFrame
+            )
         }
-    }
 
-    private func updateStableAnchorIfNeeded(frame: NSRect) {
-        guard currentShape != .expanded else {
+        guard let windowAnchor = anchorState.anchor else {
+            transitionState.invalidateTransitions()
             return
         }
 
-        stableAnchorMidX = frame.midX
+        let transition = transitionState.beginTransition(
+            size: proposedWindowFrame.size,
+            anchoredTo: windowAnchor
+        )
+        if animated {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = transition.targetShape == .expanded ? 0.30 : 0.25
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                animator().setFrame(transition.targetFrame, display: true)
+            } completionHandler: { [weak self] in
+                self?.reconcileContentStateAfterLayout(
+                    transition: transition
+                )
+            }
+        } else {
+            setFrame(transition.targetFrame, display: true)
+            reconcileContentStateAfterLayout(transition: transition)
+        }
+    }
+
+    private func reconcileContentStateAfterLayout(transition: IslandWindowTransition) {
+        guard let presentationState = transitionState.settledPresentationState(
+            for: transition.id,
+            isDragging: isDragging,
+            isPressingForDrag: isPressingForDrag
+        ) else {
+            return
+        }
+
+        switch presentationState {
+        case .expanded:
+            contentModel.isExpandedContainer = true
+            contentModel.isExpanded = true
+        case .collapsed:
+            contentModel.isExpanded = false
+            contentModel.isExpandedContainer = false
+        }
+
+        DispatchQueue.main.async { [weak self] in
+            self?.correctLatestTransitionFrameIfNeeded(transition)
+        }
+    }
+
+    private func correctLatestTransitionFrameIfNeeded(_ transition: IslandWindowTransition) {
+        guard transitionState.isCurrentTransition(transition.id),
+              !isDragging,
+              !isPressingForDrag,
+              IslandWindowGeometry.needsCorrection(
+                  actual: frame,
+                  target: transition.targetFrame
+              ) else {
+            return
+        }
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0
+            context.allowsImplicitAnimation = false
+            setFrame(transition.targetFrame, display: true)
+        }
     }
 
     private func targetScreen() -> NSScreen? {
         let screens = NSScreen.screens
-
-        if let savedScreen = positionStore.preferredScreen(in: screens) {
-            return savedScreen
+        let savedScreen = positionStore.preferredScreen(in: screens)
+        let primary = primaryScreen(from: screens)
+        guard let selectedIdentifier = IslandScreenSelection.preferredIdentifier(
+            availableIdentifiers: screens.map(\.codexIslandIdentifier),
+            anchorIdentifier: anchorState.anchor?.screenIdentifier,
+            savedIdentifier: savedScreen?.codexIslandIdentifier,
+            primaryIdentifier: primary?.codexIslandIdentifier
+        ) else {
+            return nil
         }
 
-        return primaryScreen(from: screens)
+        return screens.first {
+            $0.codexIslandIdentifier == selectedIdentifier
+        }
     }
 
     private func fallbackDesktopPetAnchorPoint() -> NSPoint {
@@ -778,30 +878,233 @@ final class NotchIslandPanel: NSPanel {
 
         return intersection
     }
+}
 
-    private func frameAnchoredToCurrentTopEdgeWhenVisible(
-        _ proposedFrame: NSRect,
-        on screen: NSScreen,
-        anchorMidX: CGFloat? = nil
-    ) -> NSRect {
-        let currentFrame = frame
-        let currentCenter = NSPoint(x: currentFrame.midX, y: currentFrame.midY)
+struct IslandWindowAnchor: Equatable {
+    let screenIdentifier: String
+    let midX: CGFloat
+    let maxY: CGFloat
+}
 
-        guard isVisible,
-              currentFrame.width > 0,
-              currentFrame.height > 0,
-              screen.frame.contains(currentCenter) else {
-            return proposedFrame
+struct IslandWindowAnchorState {
+    private(set) var anchor: IslandWindowAnchor?
+
+    func needsResolution(
+        for screenIdentifier: String,
+        forced: Bool = false
+    ) -> Bool {
+        forced || anchor?.screenIdentifier != screenIdentifier
+    }
+
+    @discardableResult
+    mutating func resolve(
+        screenIdentifier: String,
+        restingFrame: NSRect
+    ) -> IslandWindowAnchor {
+        let resolvedAnchor = IslandWindowAnchor(
+            screenIdentifier: screenIdentifier,
+            midX: restingFrame.midX,
+            maxY: restingFrame.maxY
+        )
+        anchor = resolvedAnchor
+        return resolvedAnchor
+    }
+
+    @discardableResult
+    mutating func updateAfterDrag(
+        screenIdentifier: String,
+        frame: NSRect
+    ) -> IslandWindowAnchor {
+        resolve(screenIdentifier: screenIdentifier, restingFrame: frame)
+    }
+
+    mutating func preserveForScreenChange(
+        usableFrame: NSRect,
+        currentSize: NSSize
+    ) {
+        guard let anchor else {
+            return
         }
 
-        let resolvedAnchorMidX = anchorMidX ?? currentFrame.midX
-
-        return NSRect(
-            x: resolvedAnchorMidX - proposedFrame.width / 2,
-            y: currentFrame.maxY - proposedFrame.height,
-            width: proposedFrame.width,
-            height: proposedFrame.height
+        self.anchor = IslandWindowGeometry.clampedAnchor(
+            anchor,
+            for: currentSize,
+            within: usableFrame
         )
+    }
+
+    mutating func invalidate() {
+        anchor = nil
+    }
+}
+
+enum IslandScreenSelection {
+    static func preferredIdentifier(
+        availableIdentifiers: [String],
+        anchorIdentifier: String?,
+        savedIdentifier: String?,
+        primaryIdentifier: String?
+    ) -> String? {
+        for candidate in [anchorIdentifier, savedIdentifier, primaryIdentifier] {
+            if let candidate,
+               availableIdentifiers.contains(candidate) {
+                return candidate
+            }
+        }
+
+        return availableIdentifiers.first
+    }
+}
+
+enum IslandWindowGeometry {
+    static let frameTolerance: CGFloat = 0.5
+
+    static func frame(size: NSSize, anchoredTo anchor: IslandWindowAnchor) -> NSRect {
+        NSRect(
+            x: anchor.midX - size.width / 2,
+            y: anchor.maxY - size.height,
+            width: size.width,
+            height: size.height
+        )
+    }
+
+    static func clampedAnchor(
+        _ anchor: IslandWindowAnchor,
+        for size: NSSize,
+        within usableFrame: NSRect
+    ) -> IslandWindowAnchor {
+        let halfWidth = min(size.width, usableFrame.width) / 2
+        let minMidX = usableFrame.minX + halfWidth
+        let maxMidX = usableFrame.maxX - halfWidth
+        let minMaxY = usableFrame.minY + min(size.height, usableFrame.height)
+
+        return IslandWindowAnchor(
+            screenIdentifier: anchor.screenIdentifier,
+            midX: min(max(anchor.midX, minMidX), maxMidX),
+            maxY: min(max(anchor.maxY, minMaxY), usableFrame.maxY)
+        )
+    }
+
+    static func needsCorrection(
+        actual: NSRect,
+        target: NSRect,
+        tolerance: CGFloat = frameTolerance
+    ) -> Bool {
+        abs(actual.origin.x - target.origin.x) > tolerance
+            || abs(actual.origin.y - target.origin.y) > tolerance
+            || abs(actual.size.width - target.size.width) > tolerance
+            || abs(actual.size.height - target.size.height) > tolerance
+    }
+}
+
+struct IslandTransitionTracker {
+    private(set) var currentID: UInt64 = 0
+
+    mutating func begin() -> UInt64 {
+        currentID &+= 1
+        return currentID
+    }
+
+    func isCurrent(_ transitionID: UInt64) -> Bool {
+        currentID == transitionID
+    }
+}
+
+struct IslandWindowTransition: Equatable {
+    let id: UInt64
+    let targetShape: IslandShape
+    let targetFrame: NSRect
+}
+
+enum IslandContentPresentationState: Equatable {
+    case expanded
+    case collapsed
+}
+
+struct IslandWindowTransitionState {
+    private(set) var currentShape: IslandShape
+    private(set) var restingShape: IslandShape
+    private(set) var isExpansionActive = false
+    private var tracker = IslandTransitionTracker()
+
+    init(restingShape: IslandShape) {
+        currentShape = restingShape
+        self.restingShape = restingShape
+    }
+
+    mutating func reset(restingShape: IslandShape) {
+        currentShape = restingShape
+        self.restingShape = restingShape
+        isExpansionActive = false
+        invalidateTransitions()
+    }
+
+    mutating func updateRestingShape(_ shape: IslandShape) {
+        restingShape = shape
+    }
+
+    mutating func setCurrentShape(_ shape: IslandShape) {
+        currentShape = shape
+    }
+
+    @discardableResult
+    mutating func activateExpansion(for trigger: CapsuleExpansionTrigger) -> Bool {
+        guard !isExpansionActive else {
+            return false
+        }
+
+        switch trigger {
+        case .hover, .click:
+            isExpansionActive = true
+            currentShape = .expanded
+        }
+        return true
+    }
+
+    mutating func deactivateExpansion() {
+        isExpansionActive = false
+        currentShape = restingShape
+    }
+
+    mutating func beginTransition(
+        size: NSSize,
+        anchoredTo anchor: IslandWindowAnchor
+    ) -> IslandWindowTransition {
+        IslandWindowTransition(
+            id: tracker.begin(),
+            targetShape: currentShape,
+            targetFrame: IslandWindowGeometry.frame(size: size, anchoredTo: anchor)
+        )
+    }
+
+    mutating func invalidateTransitions() {
+        _ = tracker.begin()
+    }
+
+    func isCurrentTransition(_ transitionID: UInt64) -> Bool {
+        tracker.isCurrent(transitionID)
+    }
+
+    func settledPresentationState(
+        for transitionID: UInt64,
+        isDragging: Bool,
+        isPressingForDrag: Bool
+    ) -> IslandContentPresentationState? {
+        guard tracker.isCurrent(transitionID),
+              !isDragging,
+              !isPressingForDrag else {
+            return nil
+        }
+
+        if isExpansionActive, currentShape == .expanded {
+            return .expanded
+        }
+
+        if !isExpansionActive, currentShape == restingShape {
+            return .collapsed
+        }
+
+        return nil
     }
 }
 
@@ -832,7 +1135,7 @@ private final class IslandPositionStore {
             return nil
         }
 
-        guard position.reference == .center else {
+        guard position.reference != .origin else {
             reset(on: screen)
             return nil
         }
@@ -896,8 +1199,8 @@ enum IslandPositionGeometry {
 
         return SavedIslandPosition(
             xRatio: (frame.midX - usableFrame.minX) / maxX,
-            yRatio: (frame.midY - usableFrame.minY) / maxY,
-            reference: .center
+            yRatio: (frame.maxY - usableFrame.minY) / maxY,
+            reference: .topCenter
         )
     }
 
@@ -923,6 +1226,14 @@ enum IslandPositionGeometry {
                 x: centerX - size.width / 2,
                 y: centerY - size.height / 2
             )
+        case .topCenter:
+            let centerX = usableFrame.minX + usableFrame.width * position.xRatio
+            let topY = usableFrame.minY + usableFrame.height * position.yRatio
+
+            return NSPoint(
+                x: centerX - size.width / 2,
+                y: topY - size.height
+            )
         }
     }
 }
@@ -935,6 +1246,7 @@ struct SavedIslandPosition: Codable, Equatable {
     enum Reference: String, Codable, Equatable {
         case origin
         case center
+        case topCenter
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -1035,6 +1347,17 @@ private extension NSRect {
     }
 }
 
+@MainActor
+enum IslandHostingSizingPolicy {
+    static func configure<Content: View>(_ hostingView: NSHostingView<Content>) {
+        hostingView.sizingOptions = []
+        hostingView.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        hostingView.setContentHuggingPriority(.defaultLow, for: .vertical)
+        hostingView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        hostingView.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+    }
+}
+
 private final class NotchIslandHostingView: NSHostingView<NotchIslandView> {
     var onHoverChanged: ((Bool) -> Void)?
     var onDragHandlePressed: ((NSEvent) -> Void)?
@@ -1100,13 +1423,13 @@ private final class NotchIslandHostingView: NSHostingView<NotchIslandView> {
 enum IslandInteractionRegion: Equatable {
     case content
     case drag
-    case settingsButton
+    case headerControls
 }
 
 enum IslandInteractionHitTest {
     static let expandedHeaderHeight: CGFloat = 64
-    static let settingsButtonSize = CGSize(width: 44, height: 44)
-    static let settingsButtonInset: CGFloat = 10
+    static let headerControlsSize = CGSize(width: 194, height: 44)
+    static let headerControlsInset: CGFloat = 10
 
     static func region(
         for point: NSPoint,
@@ -1121,8 +1444,8 @@ enum IslandInteractionHitTest {
             return .drag
         }
 
-        if settingsButtonFrame(in: bounds, isFlipped: isFlipped).contains(point) {
-            return .settingsButton
+        if headerControlsFrame(in: bounds, isFlipped: isFlipped).contains(point) {
+            return .headerControls
         }
 
         if headerFrame(in: bounds, isFlipped: isFlipped).contains(point) {
@@ -1142,15 +1465,15 @@ enum IslandInteractionHitTest {
         )
     }
 
-    static func settingsButtonFrame(in bounds: NSRect, isFlipped: Bool) -> NSRect {
+    static func headerControlsFrame(in bounds: NSRect, isFlipped: Bool) -> NSRect {
         let y = isFlipped
-            ? bounds.minY + settingsButtonInset
-            : bounds.maxY - settingsButtonInset - settingsButtonSize.height
+            ? bounds.minY + headerControlsInset
+            : bounds.maxY - headerControlsInset - headerControlsSize.height
         return NSRect(
-            x: bounds.maxX - settingsButtonInset - settingsButtonSize.width,
+            x: bounds.maxX - headerControlsInset - headerControlsSize.width,
             y: y,
-            width: settingsButtonSize.width,
-            height: settingsButtonSize.height
+            width: headerControlsSize.width,
+            height: headerControlsSize.height
         )
     }
 }

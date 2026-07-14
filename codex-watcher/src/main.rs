@@ -41,6 +41,9 @@ async fn main() -> Result<()> {
     watcher::start_all_watchers(&sessions_dir, event_tx).await;
     let mut token_usage_aggregators =
         parser::global_token_usage::TokenUsageAggregators::load_from_sessions_dir(&sessions_dir);
+    if let Err(error) = token_usage_aggregators.flush_if_dirty() {
+        warn!("Failed to persist token ledger: {error}");
+    }
     let global_token_snapshot = token_usage_aggregators.global.snapshot();
     let daily_token_snapshot = token_usage_aggregators.daily.snapshot();
     info!("GlobalTokenUsageSnapshot: {:?}", global_token_snapshot);
@@ -63,10 +66,16 @@ async fn main() -> Result<()> {
         tokio::select! {
             _ = tokio::signal::ctrl_c() => {
                 info!("Shutting down");
+                if let Err(error) = token_usage_aggregators.flush_if_dirty() {
+                    warn!("Failed to persist token ledger during shutdown: {error}");
+                }
                 ipc::unix_socket::cleanup_socket(&socket_path).await?;
                 break;
             }
             _ = timeout_interval.tick() => {
+                if let Err(error) = token_usage_aggregators.flush_if_dirty() {
+                    warn!("Failed to persist token ledger: {error}");
+                }
                 for state_event in state_parser.check_timeouts() {
                     info!("SessionStateEvent: {:?}", state_event);
                     ipc_server.publish(&state_event);
@@ -79,7 +88,7 @@ async fn main() -> Result<()> {
                 };
 
                 info!("Raw event: {:?}", event);
-                if let Some(state_event) = state_parser.process_event(&event) {
+                for state_event in state_parser.process_event(&event) {
                     info!("SessionStateEvent: {:?}", state_event);
                     ipc_server.publish(&state_event);
                 }

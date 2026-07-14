@@ -52,6 +52,7 @@ enum AppTextKey {
     case language
     case chinese
     case english
+    case customPets
     case openCacheDirectory
     case openCodexSessions
     case openCodex
@@ -59,6 +60,7 @@ enum AppTextKey {
     case checkingForUpdates
     case downloadingUpdate
     case restartToUpdate
+    case restartApp
     case resetCapsulePosition
     case quit
     case notLoaded
@@ -74,6 +76,7 @@ enum AppTextKey {
     case agentMessage
     case input
     case cached
+    case cacheRate
     case uncached
     case output
     case total
@@ -162,6 +165,7 @@ final class AppSettingsStore: ObservableObject {
         case .language: return "语言"
         case .chinese: return "中文"
         case .english: return "English"
+        case .customPets: return "自定义宠物"
         case .openCacheDirectory: return "打开缓存目录"
         case .openCodexSessions: return "打开 Codex 会话目录"
         case .openCodex: return "打开 Codex"
@@ -169,6 +173,7 @@ final class AppSettingsStore: ObservableObject {
         case .checkingForUpdates: return "正在检查更新..."
         case .downloadingUpdate: return "下载中..."
         case .restartToUpdate: return "重启以更新"
+        case .restartApp: return "重启应用"
         case .resetCapsulePosition: return "重置胶囊位置"
         case .quit: return "退出"
         case .notLoaded: return "空闲"
@@ -184,6 +189,7 @@ final class AppSettingsStore: ObservableObject {
         case .agentMessage: return "生成回复"
         case .input: return "输入"
         case .cached: return "缓存"
+        case .cacheRate: return "缓存率"
         case .uncached: return "未缓存"
         case .output: return "输出"
         case .total: return "总计"
@@ -206,6 +212,7 @@ final class AppSettingsStore: ObservableObject {
         case .language: return "Language"
         case .chinese: return "中文"
         case .english: return "English"
+        case .customPets: return "Custom Pets"
         case .openCacheDirectory: return "Open Cache Directory"
         case .openCodexSessions: return "Open Codex Sessions"
         case .openCodex: return "Open Codex"
@@ -213,6 +220,7 @@ final class AppSettingsStore: ObservableObject {
         case .checkingForUpdates: return "Checking for Updates..."
         case .downloadingUpdate: return "Downloading..."
         case .restartToUpdate: return "Restart to Update"
+        case .restartApp: return "Restart App"
         case .resetCapsulePosition: return "Reset Capsule Position"
         case .quit: return "Quit"
         case .notLoaded: return "Idle"
@@ -228,6 +236,7 @@ final class AppSettingsStore: ObservableObject {
         case .agentMessage: return "Generating Reply"
         case .input: return "Input"
         case .cached: return "Cached"
+        case .cacheRate: return "Cache Rate"
         case .uncached: return "Uncached"
         case .output: return "Output"
         case .total: return "Total"
@@ -239,6 +248,12 @@ final class AppSettingsStore: ObservableObject {
 }
 
 enum AppDirectories {
+    static func codexHomeDirectory() -> URL {
+        let path = ProcessInfo.processInfo.environment["CODEX_HOME"]
+            ?? "\(NSHomeDirectory())/.codex"
+        return URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL
+    }
+
     static func appCacheDirectory() -> URL {
         let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
@@ -248,12 +263,16 @@ enum AppDirectories {
     }
 
     static func codexSessionsDirectory() -> URL {
-        let codexHome = ProcessInfo.processInfo.environment["CODEX_HOME"]
-            ?? "\(NSHomeDirectory())/.codex"
-        let directory = URL(fileURLWithPath: codexHome, isDirectory: true)
+        let directory = codexHomeDirectory()
             .appendingPathComponent("sessions", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory
+    }
+
+    static func customPetStagesDirectory() -> URL {
+        codexHomeDirectory()
+            .appendingPathComponent("pets", isDirectory: true)
+            .appendingPathComponent("codex-island-stages", isDirectory: true)
     }
 
     static func open(_ url: URL) {

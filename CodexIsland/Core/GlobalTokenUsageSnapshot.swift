@@ -31,6 +31,7 @@ struct DailyTokenUsageSnapshot: Codable {
     let totalReasoning: Int
     let totalTokens: Int
     let sessionCount: Int
+    let requestCount: Int?
     let updatedAt: Date
 
     enum CodingKeys: String, CodingKey {
@@ -42,6 +43,7 @@ struct DailyTokenUsageSnapshot: Codable {
         case totalReasoning = "total_reasoning"
         case totalTokens = "total_tokens"
         case sessionCount = "session_count"
+        case requestCount = "request_count"
         case updatedAt = "updated_at"
     }
 }

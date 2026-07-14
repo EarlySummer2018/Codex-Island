@@ -4,6 +4,7 @@ import XCTest
 final class PetLevelCurveTests: XCTestCase {
     func testTokensRequired() {
         XCTAssertEqual(PetLevelCurve.tokensRequired(for: 0), 0)
+        XCTAssertEqual(PetLevelCurve.tokensRequired(for: 12), 1_576_800_000)
         XCTAssertEqual(PetLevelCurve.tokensRequired(for: 100), 109_500_000_000)
     }
 

@@ -66,11 +66,13 @@ struct ExpandedPanelView: View {
                     .foregroundStyle(.white)
                     .lineLimit(1)
 
-                Text(subtitle)
-                    .font(.system(size: 10, weight: .medium, design: .monospaced))
-                    .foregroundStyle(PanelPalette.textMuted)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.72)
+                if let activityText {
+                    Text(activityText)
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .foregroundStyle(PanelPalette.textMuted)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
+                }
             }
 
             Spacer(minLength: 0)
@@ -138,7 +140,7 @@ struct ExpandedPanelView: View {
 
             HStack(spacing: 8) {
                 MetricChip(title: "LV", value: "\(evolutionStore.level)", color: PanelPalette.magenta)
-                MetricChip(title: "C", value: store.cacheHitPercent, color: PanelPalette.cyan)
+                MetricChip(title: "C", value: store.globalCacheHitPercent, color: PanelPalette.cyan)
             }
 
             Spacer(minLength: 8)
@@ -191,7 +193,7 @@ struct ExpandedPanelView: View {
             HStack(spacing: 6) {
                 ConsoleStat(title: turnTitle, value: turnText, color: PanelPalette.cyan)
                 ConsoleStat(title: todayTitle, value: TokenFormatter.format(store.todayTotalTokens), color: TokenColors.output)
-                ConsoleStat(title: totalTitle, value: TokenFormatter.format(store.totalTokens), color: PanelPalette.magenta)
+                ConsoleStat(title: totalTitle, value: TokenFormatter.format(store.globalTotalTokens), color: PanelPalette.magenta)
             }
 
             HStack(spacing: 6) {
@@ -224,15 +226,18 @@ struct ExpandedPanelView: View {
 
     private var tokenGrid: some View {
         HStack(spacing: 8) {
-            TokenCard(title: settings.text(.input), value: store.totalInput, color: TokenColors.input)
+            TokenCard(title: settings.text(.input), value: store.globalTotalInput, color: TokenColors.input)
             TokenCard(
                 title: settings.text(.cached),
-                value: store.totalCachedInput,
-                color: TokenColors.cached,
-                note: store.cacheHitPercent
+                value: store.globalTotalCachedInput,
+                color: TokenColors.cached
             )
-            TokenCard(title: settings.text(.uncached), value: store.totalUncachedInput, color: TokenColors.uncached)
-            TokenCard(title: settings.text(.output), value: store.totalOutput, color: TokenColors.output)
+            TokenCard(
+                title: settings.text(.cacheRate),
+                text: store.globalCacheHitPercent,
+                color: TokenColors.uncached
+            )
+            TokenCard(title: settings.text(.output), value: store.globalTotalOutput, color: TokenColors.output)
         }
         .frame(height: 56)
     }
@@ -251,29 +256,12 @@ struct ExpandedPanelView: View {
 
             Spacer(minLength: 0)
 
-            Text(cacheSummary)
-                .font(.system(size: 9, weight: .medium, design: .monospaced))
-                .foregroundStyle(PanelPalette.text)
-                .lineLimit(1)
-
             Text(versionText)
                 .font(.system(size: 9, weight: .medium, design: .monospaced))
                 .foregroundStyle(PanelPalette.textDim)
                 .lineLimit(1)
         }
         .frame(height: 20)
-    }
-
-    private var subtitle: String {
-        if let activityText = activityText {
-            return activityText
-        }
-
-        guard let token = store.latest else {
-            return settings.text(.noTokenDataYet)
-        }
-
-        return "\(settings.text(.sessionTotalPrefix))\(TokenFormatter.format(token.totalTokens))\(settings.text(.sessionTotalSuffix))"
     }
 
     private var evolutionProgress: Double {
@@ -367,21 +355,23 @@ struct ExpandedPanelView: View {
     }
 
     private var turnText: String {
-        guard let turn = store.latest?.turnIndex else {
-            return "0"
-        }
-
-        return "\(turn)"
+        "\(store.todayRequestCount)"
     }
 
     private var primaryStatText: String {
-        let tokenText = TokenFormatter.format(evolutionStore.earnedTokens)
+        guard evolutionStore.level < PetLevelCurve.maxLevel else {
+            return maxProgressText
+        }
+
+        let nextLevel = evolutionStore.level + 1
+        let required = PetLevelCurve.tokensRequired(for: nextLevel)
+        let tokenText = TokenFormatter.format(required)
 
         switch settings.language {
         case .chinese:
-            return "Lv.\(evolutionStore.level) · 成长 \(tokenText)"
+            return "升 Lv.\(nextLevel) · 总经验 \(tokenText)"
         case .english:
-            return "Lv.\(evolutionStore.level) · \(tokenText) growth"
+            return "Lv.\(nextLevel) · \(tokenText) total XP"
         }
     }
 
@@ -391,10 +381,6 @@ struct ExpandedPanelView: View {
         }
 
         return title(for: eventBus.sessionState)
-    }
-
-    private var cacheSummary: String {
-        "\(settings.text(.cached)) \(store.cacheHitPercent)"
     }
 
     private var versionText: String {

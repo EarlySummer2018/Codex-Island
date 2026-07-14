@@ -215,7 +215,7 @@ mod tests {
             r#"{"type":"global_token_usage","total_input":300,"total_cached_input":140,"total_output":37,"total_reasoning":3,"total_tokens":337,"session_count":2,"updated_at":"2026-06-28T08:00:00Z"}"#,
         );
         cache.update(
-            r#"{"type":"daily_token_usage","local_date":"2026-06-28","total_input":120,"total_cached_input":40,"total_output":20,"total_reasoning":2,"total_tokens":140,"session_count":1,"updated_at":"2026-06-28T08:00:00Z"}"#,
+            r#"{"type":"daily_token_usage","local_date":"2026-06-28","total_input":120,"total_cached_input":40,"total_output":20,"total_reasoning":2,"total_tokens":140,"session_count":1,"request_count":4,"updated_at":"2026-06-28T08:00:00Z"}"#,
         );
         cache.update(
             r#"{"session_id":"session-a","session_file":"/tmp/a.jsonl","delta_input":20,"delta_cached_input":10,"delta_uncached_input":10,"delta_output":7,"delta_reasoning":1,"total_input":80,"total_cached_input":20,"total_uncached_input":60,"total_output":7,"total_reasoning":1,"cache_hit_rate":0.25,"timestamp":"2026-06-28T08:00:00Z","turn_index":1}"#,
@@ -277,5 +277,23 @@ mod tests {
         // session-a holds the latest (superseding) totals, not the earlier row.
         assert!(session_a.contains(r#""total_input":150"#));
         assert!(session_b.contains(r#""total_input":200"#));
+    }
+
+    #[test]
+    fn terminal_state_replaces_stale_running_state() {
+        let mut cache = ReplayCache::default();
+        cache.update(
+            r#"{"session_id":"session-a","state":"running","activity_kind":"file_change","turn_state":"in_progress","source":"jsonl","timestamp":"2026-07-13T12:01:59Z","await_reason":null}"#,
+        );
+        cache.update(
+            r#"{"session_id":"session-a","state":"idle","activity_kind":"none","turn_state":"interrupted","source":"jsonl","timestamp":"2026-07-13T12:02:09Z","await_reason":null}"#,
+        );
+
+        let messages = cache.messages();
+
+        assert_eq!(messages.len(), 1);
+        assert!(messages[0].contains(r#""state":"idle""#));
+        assert!(messages[0].contains(r#""turn_state":"interrupted""#));
+        assert!(!messages[0].contains(r#""state":"running""#));
     }
 }

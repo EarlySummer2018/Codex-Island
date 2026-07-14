@@ -1,6 +1,7 @@
 import AppKit
 import CoreGraphics
 import ImageIO
+import SwiftUI
 import XCTest
 @testable import CodexIsland
 
@@ -180,20 +181,28 @@ final class DesktopPetBehaviorTests: XCTestCase {
         XCTAssertEqual(restoredOrigin.y, offscreenFrame.minY, accuracy: 0.001)
     }
 
-    func testIslandInteractionHitAreasPrioritizeSettingsThenHeaderDrag() {
+    func testIslandInteractionHitAreasPrioritizeHeaderControlsThenHeaderDrag() {
         let expandedBounds = CGRect(x: 0, y: 0, width: 440, height: 290)
-        let settingsFrame = IslandInteractionHitTest.settingsButtonFrame(
+        let controlsFrame = IslandInteractionHitTest.headerControlsFrame(
             in: expandedBounds,
             isFlipped: true
         )
 
         XCTAssertEqual(
             IslandInteractionHitTest.region(
-                for: CGPoint(x: settingsFrame.midX, y: settingsFrame.midY),
+                for: CGPoint(x: controlsFrame.maxX - 22, y: controlsFrame.midY),
                 in: expandedBounds,
                 isFlipped: true
             ),
-            .settingsButton
+            .headerControls
+        )
+        XCTAssertEqual(
+            IslandInteractionHitTest.region(
+                for: CGPoint(x: controlsFrame.minX + 56, y: controlsFrame.midY),
+                in: expandedBounds,
+                isFlipped: true
+            ),
+            .headerControls
         )
         XCTAssertEqual(
             IslandInteractionHitTest.region(
@@ -221,6 +230,17 @@ final class DesktopPetBehaviorTests: XCTestCase {
         )
     }
 
+    func testAppRelauncherPassesBundlePathAsASeparateShellArgument() {
+        let bundleURL = URL(fileURLWithPath: "/tmp/Codex Island's Build/CodexIsland.app")
+        let arguments = AppRelauncher.helperArguments(for: bundleURL)
+
+        XCTAssertEqual(arguments.first, "-c")
+        XCTAssertEqual(arguments[2], "codex-island-restart")
+        XCTAssertEqual(arguments[3], bundleURL.standardizedFileURL.path)
+        XCTAssertFalse(arguments[1].contains(bundleURL.path))
+        XCTAssertTrue(arguments[1].contains("open -n"))
+    }
+
     func testIslandPressGestureSeparatesClickFromDrag() {
         let start = CGPoint(x: 40, y: 40)
 
@@ -229,7 +249,7 @@ final class DesktopPetBehaviorTests: XCTestCase {
         XCTAssertTrue(IslandPressGesture.isDrag(from: start, to: CGPoint(x: 45, y: 40)))
     }
 
-    func testCapsuleSavedPositionPreservesCenterAcrossSizeChanges() {
+    func testCapsuleSavedPositionPreservesTopCenterAcrossSizeChanges() {
         let usableFrame = CGRect(x: 0, y: 100, width: 1000, height: 700)
         let expandedFrame = CGRect(x: 250, y: 380, width: 440, height: 290)
         let compactSize = CGSize(width: 360, height: 34)
@@ -244,16 +264,550 @@ final class DesktopPetBehaviorTests: XCTestCase {
             position: position
         )
 
+        XCTAssertEqual(position.reference, .topCenter)
         XCTAssertEqual(
             restoredOrigin.x + compactSize.width / 2,
             expandedFrame.midX,
             accuracy: 0.001
         )
         XCTAssertEqual(
-            restoredOrigin.y + compactSize.height / 2,
-            expandedFrame.midY,
+            restoredOrigin.y + compactSize.height,
+            expandedFrame.maxY,
             accuracy: 0.001
         )
+    }
+
+    func testIslandWindowGeometryPreservesAnchorAcrossRepeatedShapeChanges() {
+        let anchor = IslandWindowAnchor(
+            screenIdentifier: "display-1",
+            midX: 720,
+            maxY: 980
+        )
+        let pillSizes = CapsuleDisplayStyle.allCases.flatMap { style in
+            [
+                style.pillSize(desktopPetEnabled: false),
+                style.pillSize(desktopPetEnabled: true)
+            ]
+        }
+
+        for pillSize in pillSizes {
+            for _ in 0..<50 {
+                let expandedFrame = IslandWindowGeometry.frame(
+                    size: IslandShape.expandedSize,
+                    anchoredTo: anchor
+                )
+                let pillFrame = IslandWindowGeometry.frame(
+                    size: pillSize,
+                    anchoredTo: anchor
+                )
+
+                XCTAssertEqual(expandedFrame.midX, anchor.midX, accuracy: 0.001)
+                XCTAssertEqual(expandedFrame.maxY, anchor.maxY, accuracy: 0.001)
+                XCTAssertEqual(pillFrame.midX, anchor.midX, accuracy: 0.001)
+                XCTAssertEqual(pillFrame.maxY, anchor.maxY, accuracy: 0.001)
+                XCTAssertEqual(
+                    pillFrame.minX - expandedFrame.minX,
+                    (IslandShape.expandedSize.width - pillSize.width) / 2,
+                    accuracy: 0.001
+                )
+            }
+        }
+    }
+
+    @MainActor
+    func testHostingSizingPolicyKeepsCompactFrameAfterAppKitLayout() async {
+        let anchor = IslandWindowAnchor(
+            screenIdentifier: "display-1",
+            midX: 640,
+            maxY: 900
+        )
+        let compactFrame = IslandWindowGeometry.frame(
+            size: IslandShape.fallbackCompactSize,
+            anchoredTo: anchor
+        )
+        let panel = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 324, height: 34),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        let hostingView = NSHostingView(
+            rootView: Color.black.frame(width: 324, height: 34)
+        )
+        IslandHostingSizingPolicy.configure(hostingView)
+        hostingView.autoresizingMask = [.width, .height]
+        panel.contentView = hostingView
+
+        panel.setFrame(compactFrame, display: false)
+        panel.orderFrontRegardless()
+        try? await Task.sleep(nanoseconds: 150_000_000)
+
+        XCTAssertEqual(panel.frame.width, 120, accuracy: 0.5)
+        XCTAssertEqual(panel.frame.midX, anchor.midX, accuracy: 0.5)
+        XCTAssertEqual(panel.frame.maxY, anchor.maxY, accuracy: 0.5)
+        XCTAssertFalse(
+            IslandWindowGeometry.needsCorrection(
+                actual: panel.frame,
+                target: compactFrame
+            )
+        )
+        panel.orderOut(nil)
+    }
+
+    func testScreenChangePreservesOrClampsExistingAnchor() {
+        var anchorState = IslandWindowAnchorState()
+        let original = anchorState.resolve(
+            screenIdentifier: "display-1",
+            restingFrame: CGRect(x: 478, y: 866, width: 324, height: 34)
+        )
+        let roomyFrame = CGRect(x: 0, y: 0, width: 1920, height: 1050)
+
+        anchorState.preserveForScreenChange(
+            usableFrame: roomyFrame,
+            currentSize: CGSize(width: 324, height: 34)
+        )
+        XCTAssertEqual(anchorState.anchor, original)
+
+        let reducedFrame = CGRect(x: 0, y: 0, width: 600, height: 500)
+        anchorState.preserveForScreenChange(
+            usableFrame: reducedFrame,
+            currentSize: CGSize(width: 440, height: 290)
+        )
+
+        XCTAssertEqual(anchorState.anchor?.screenIdentifier, "display-1")
+        XCTAssertEqual(anchorState.anchor?.midX ?? 0, 380, accuracy: 0.001)
+        XCTAssertEqual(anchorState.anchor?.maxY ?? 0, 500, accuracy: 0.001)
+    }
+
+    func testFrameCorrectionDetectsHostingWidthRegression() {
+        let target = CGRect(x: 580, y: 866, width: 120, height: 34)
+        let regressed = CGRect(x: 580, y: 866, width: 324, height: 34)
+
+        XCTAssertTrue(
+            IslandWindowGeometry.needsCorrection(
+                actual: regressed,
+                target: target
+            )
+        )
+        XCTAssertFalse(
+            IslandWindowGeometry.needsCorrection(
+                actual: target.offsetBy(dx: 0.25, dy: -0.25),
+                target: target
+            )
+        )
+    }
+
+    func testIslandAnchorLifecycleOnlyChangesForApprovedPositionEvents() {
+        var anchorState = IslandWindowAnchorState()
+        let initialRestingFrame = CGRect(x: 500, y: 700, width: 324, height: 34)
+        let initialAnchor = anchorState.resolve(
+            screenIdentifier: "display-1",
+            restingFrame: initialRestingFrame
+        )
+
+        XCTAssertFalse(anchorState.needsResolution(for: "display-1"))
+        XCTAssertEqual(anchorState.anchor, initialAnchor)
+
+        for size in [
+            IslandShape.expandedSize,
+            IslandShape.fallbackCompactSize,
+            CGSize(width: 112, height: 34),
+            CGSize(width: 360, height: 34)
+        ] {
+            _ = IslandWindowGeometry.frame(size: size, anchoredTo: initialAnchor)
+            XCTAssertEqual(anchorState.anchor, initialAnchor)
+        }
+
+        let draggedFrame = CGRect(x: 760, y: 520, width: 440, height: 290)
+        let draggedAnchor = anchorState.updateAfterDrag(
+            screenIdentifier: "display-1",
+            frame: draggedFrame
+        )
+        XCTAssertEqual(draggedAnchor.midX, draggedFrame.midX, accuracy: 0.001)
+        XCTAssertEqual(draggedAnchor.maxY, draggedFrame.maxY, accuracy: 0.001)
+        XCTAssertNotEqual(draggedAnchor, initialAnchor)
+
+        anchorState.invalidate()
+        XCTAssertNil(anchorState.anchor)
+        XCTAssertTrue(anchorState.needsResolution(for: "display-1"))
+
+        let resetFrame = CGRect(x: 798, y: 900, width: 324, height: 34)
+        let resetAnchor = anchorState.resolve(
+            screenIdentifier: "display-1",
+            restingFrame: resetFrame
+        )
+        XCTAssertEqual(resetAnchor.midX, resetFrame.midX, accuracy: 0.001)
+        XCTAssertEqual(resetAnchor.maxY, resetFrame.maxY, accuracy: 0.001)
+    }
+
+    func testIslandAnchorAndScreenSelectionFollowDisplayConfigurationChanges() {
+        var anchorState = IslandWindowAnchorState()
+        _ = anchorState.resolve(
+            screenIdentifier: "display-1",
+            restingFrame: CGRect(x: 500, y: 700, width: 324, height: 34)
+        )
+
+        XCTAssertEqual(
+            IslandScreenSelection.preferredIdentifier(
+                availableIdentifiers: ["display-1", "display-2"],
+                anchorIdentifier: anchorState.anchor?.screenIdentifier,
+                savedIdentifier: "display-2",
+                primaryIdentifier: "display-1"
+            ),
+            "display-1"
+        )
+
+        anchorState.invalidate()
+        XCTAssertEqual(
+            IslandScreenSelection.preferredIdentifier(
+                availableIdentifiers: ["display-1", "display-2"],
+                anchorIdentifier: anchorState.anchor?.screenIdentifier,
+                savedIdentifier: "display-2",
+                primaryIdentifier: "display-1"
+            ),
+            "display-2"
+        )
+
+        XCTAssertEqual(
+            IslandScreenSelection.preferredIdentifier(
+                availableIdentifiers: ["display-2"],
+                anchorIdentifier: "display-1",
+                savedIdentifier: nil,
+                primaryIdentifier: "display-2"
+            ),
+            "display-2"
+        )
+
+        let secondScreenAnchor = anchorState.resolve(
+            screenIdentifier: "display-2",
+            restingFrame: CGRect(x: 2400, y: 820, width: 324, height: 34)
+        )
+        XCTAssertEqual(secondScreenAnchor.screenIdentifier, "display-2")
+        XCTAssertFalse(anchorState.needsResolution(for: "display-2"))
+        XCTAssertTrue(anchorState.needsResolution(for: "display-1"))
+    }
+
+    func testLegacyCenterSavedPositionStillRestoresWithoutMigrationLoss() {
+        let usableFrame = CGRect(x: 0, y: 100, width: 1000, height: 700)
+        let legacyPosition = SavedIslandPosition(
+            xRatio: 0.62,
+            yRatio: 0.74,
+            reference: .center
+        )
+        let size = CGSize(width: 324, height: 34)
+
+        let origin = IslandPositionGeometry.origin(
+            for: size,
+            usableFrame: usableFrame,
+            position: legacyPosition
+        )
+
+        XCTAssertEqual(origin.x + size.width / 2, 620, accuracy: 0.001)
+        XCTAssertEqual(origin.y + size.height / 2, 618, accuracy: 0.001)
+    }
+
+    func testSessionStateChangesKeepConfiguredPillSizeAndAnchor() {
+        let anchor = IslandWindowAnchor(
+            screenIdentifier: "display-1",
+            midX: 640,
+            maxY: 900
+        )
+        let states: [CodexSessionState] = [.running, .notLoaded, .running]
+        let configuredSize = CGSize(width: 324, height: 34)
+        var transitionState = IslandWindowTransitionState(restingShape: .pill)
+
+        for _ in states {
+            transitionState.setCurrentShape(.pill)
+            let transition = transitionState.beginTransition(
+                size: configuredSize,
+                anchoredTo: anchor
+            )
+
+            XCTAssertEqual(transition.targetShape, .pill)
+            XCTAssertEqual(transition.targetFrame.size, configuredSize)
+            XCTAssertEqual(transition.targetFrame.midX, anchor.midX, accuracy: 0.001)
+            XCTAssertEqual(transition.targetFrame.maxY, anchor.maxY, accuracy: 0.001)
+            XCTAssertEqual(
+                transitionState.settledPresentationState(
+                    for: transition.id,
+                    isDragging: false,
+                    isPressingForDrag: false
+                ),
+                .collapsed
+            )
+        }
+    }
+
+    func testCapsuleStyleChangeSettlesExpandedWindowAtNewPillSizeImmediately() {
+        let anchor = IslandWindowAnchor(
+            screenIdentifier: "display-1",
+            midX: 640,
+            maxY: 900
+        )
+        var transitionState = IslandWindowTransitionState(restingShape: .pill)
+        XCTAssertTrue(transitionState.activateExpansion(for: .hover))
+
+        transitionState.deactivateExpansion()
+        let smallSize = CapsuleDisplayStyle.small.pillSize(desktopPetEnabled: true)
+        let transition = transitionState.beginTransition(size: smallSize, anchoredTo: anchor)
+
+        XCTAssertFalse(transitionState.isExpansionActive)
+        XCTAssertEqual(transition.targetShape, .pill)
+        XCTAssertEqual(transition.targetFrame.width, 112, accuracy: 0.001)
+        XCTAssertEqual(transition.targetFrame.midX, anchor.midX, accuracy: 0.001)
+    }
+
+    func testOutOfOrderExpansionAndCollapseCompletionsOnlySettleLatestTransition() {
+        let anchor = IslandWindowAnchor(
+            screenIdentifier: "display-1",
+            midX: 640,
+            maxY: 900
+        )
+        var transitionState = IslandWindowTransitionState(restingShape: .pill)
+
+        transitionState.activateExpansion(for: .hover)
+        let firstExpansion = transitionState.beginTransition(
+            size: IslandShape.expandedSize,
+            anchoredTo: anchor
+        )
+        transitionState.deactivateExpansion()
+        let interruptedCollapse = transitionState.beginTransition(
+            size: CGSize(width: 324, height: 34),
+            anchoredTo: anchor
+        )
+        transitionState.activateExpansion(for: .hover)
+        let latestExpansion = transitionState.beginTransition(
+            size: IslandShape.expandedSize,
+            anchoredTo: anchor
+        )
+
+        for staleTransition in [interruptedCollapse, firstExpansion] {
+            XCTAssertNil(
+                transitionState.settledPresentationState(
+                    for: staleTransition.id,
+                    isDragging: false,
+                    isPressingForDrag: false
+                )
+            )
+        }
+        XCTAssertEqual(
+            transitionState.settledPresentationState(
+                for: latestExpansion.id,
+                isDragging: false,
+                isPressingForDrag: false
+            ),
+            .expanded
+        )
+
+        transitionState.deactivateExpansion()
+        let latestCollapse = transitionState.beginTransition(
+            size: CGSize(width: 324, height: 34),
+            anchoredTo: anchor
+        )
+
+        XCTAssertNil(
+            transitionState.settledPresentationState(
+                for: latestExpansion.id,
+                isDragging: false,
+                isPressingForDrag: false
+            )
+        )
+        XCTAssertEqual(
+            transitionState.settledPresentationState(
+                for: latestCollapse.id,
+                isDragging: false,
+                isPressingForDrag: false
+            ),
+            .collapsed
+        )
+    }
+
+    func testIslandContentPresentationSettlesAfterInterruptedDrag() {
+        let anchor = IslandWindowAnchor(
+            screenIdentifier: "display-1",
+            midX: 640,
+            maxY: 900
+        )
+        var transitionState = IslandWindowTransitionState(restingShape: .pill)
+        transitionState.activateExpansion(for: .hover)
+        let expansion = transitionState.beginTransition(
+            size: IslandShape.expandedSize,
+            anchoredTo: anchor
+        )
+
+        transitionState.invalidateTransitions()
+
+        XCTAssertNil(
+            transitionState.settledPresentationState(
+                for: expansion.id,
+                isDragging: true,
+                isPressingForDrag: true
+            )
+        )
+
+        XCTAssertNil(
+            transitionState.settledPresentationState(
+                for: expansion.id,
+                isDragging: false,
+                isPressingForDrag: false
+            )
+        )
+
+        let resumedExpansion = transitionState.beginTransition(
+            size: IslandShape.expandedSize,
+            anchoredTo: anchor
+        )
+        XCTAssertEqual(
+            transitionState.settledPresentationState(
+                for: resumedExpansion.id,
+                isDragging: false,
+                isPressingForDrag: false
+            ),
+            .expanded
+        )
+
+        transitionState.deactivateExpansion()
+        let collapse = transitionState.beginTransition(
+            size: CGSize(width: 324, height: 34),
+            anchoredTo: anchor
+        )
+        XCTAssertEqual(
+            transitionState.settledPresentationState(
+                for: collapse.id,
+                isDragging: false,
+                isPressingForDrag: false
+            ),
+            .collapsed
+        )
+        XCTAssertNil(
+            transitionState.settledPresentationState(
+                for: resumedExpansion.id,
+                isDragging: false,
+                isPressingForDrag: false
+            )
+        )
+    }
+
+    func testExpandedPanelAlwaysCollapsesToConfiguredPill() {
+        let anchor = IslandWindowAnchor(
+            screenIdentifier: "display-1",
+            midX: 640,
+            maxY: 900
+        )
+        var transitionState = IslandWindowTransitionState(restingShape: .pill)
+        transitionState.activateExpansion(for: .hover)
+        let expansion = transitionState.beginTransition(
+            size: IslandShape.expandedSize,
+            anchoredTo: anchor
+        )
+
+        XCTAssertEqual(transitionState.currentShape, .expanded)
+        XCTAssertEqual(transitionState.restingShape, .pill)
+        XCTAssertEqual(
+            transitionState.settledPresentationState(
+                for: expansion.id,
+                isDragging: false,
+                isPressingForDrag: false
+            ),
+            .expanded
+        )
+
+        transitionState.deactivateExpansion()
+        let collapse = transitionState.beginTransition(
+            size: CGSize(width: 324, height: 34),
+            anchoredTo: anchor
+        )
+
+        XCTAssertEqual(collapse.targetShape, .pill)
+        XCTAssertEqual(collapse.targetFrame.midX, expansion.targetFrame.midX, accuracy: 0.001)
+        XCTAssertEqual(collapse.targetFrame.maxY, expansion.targetFrame.maxY, accuracy: 0.001)
+        XCTAssertNil(
+            transitionState.settledPresentationState(
+                for: expansion.id,
+                isDragging: false,
+                isPressingForDrag: false
+            )
+        )
+        XCTAssertEqual(
+            transitionState.settledPresentationState(
+                for: collapse.id,
+                isDragging: false,
+                isPressingForDrag: false
+            ),
+            .collapsed
+        )
+    }
+
+    func testHoverAndClickExpansionShareFixedAnchorSemantics() {
+        let anchor = IslandWindowAnchor(
+            screenIdentifier: "display-1",
+            midX: 640,
+            maxY: 900
+        )
+        var expandedFrames: [NSRect] = []
+        var collapsedFrames: [NSRect] = []
+
+        for trigger in CapsuleExpansionTrigger.allCases {
+            var transitionState = IslandWindowTransitionState(restingShape: .pill)
+            XCTAssertTrue(transitionState.activateExpansion(for: trigger))
+            let expansion = transitionState.beginTransition(
+                size: IslandShape.expandedSize,
+                anchoredTo: anchor
+            )
+            transitionState.deactivateExpansion()
+            let collapse = transitionState.beginTransition(
+                size: CGSize(width: 324, height: 34),
+                anchoredTo: anchor
+            )
+
+            XCTAssertEqual(expansion.targetFrame.midX, anchor.midX, accuracy: 0.001)
+            XCTAssertEqual(expansion.targetFrame.maxY, anchor.maxY, accuracy: 0.001)
+            XCTAssertEqual(collapse.targetFrame.midX, anchor.midX, accuracy: 0.001)
+            XCTAssertEqual(collapse.targetFrame.maxY, anchor.maxY, accuracy: 0.001)
+            expandedFrames.append(expansion.targetFrame)
+            collapsedFrames.append(collapse.targetFrame)
+        }
+
+        XCTAssertEqual(expandedFrames.count, 2)
+        XCTAssertEqual(collapsedFrames.count, 2)
+        XCTAssertEqual(expandedFrames[0], expandedFrames[1])
+        XCTAssertEqual(collapsedFrames[0], collapsedFrames[1])
+    }
+
+    func testConfiguredCapsuleSizeDoesNotDependOnSessionState() {
+        let states: [CodexSessionState] = [
+            .notLoaded,
+            .idle,
+            .running,
+            .waitingForInput,
+            .readyForReview,
+            .error
+        ]
+
+        for _ in states {
+            XCTAssertEqual(
+                IslandShape.pill.size(
+                    fitting: CGRect(
+                        origin: .zero,
+                        size: IslandShape.fallbackCompactSize
+                    ),
+                    capsuleStyle: .large,
+                    desktopPetEnabled: true
+                ).width,
+                324
+            )
+            XCTAssertEqual(
+                IslandShape.pill.size(
+                    fitting: CGRect(
+                        origin: .zero,
+                        size: IslandShape.fallbackCompactSize
+                    ),
+                    capsuleStyle: .small,
+                    desktopPetEnabled: true
+                ).width,
+                112
+            )
+        }
     }
 
     func testMovingAnimationsAlwaysUseStrideFrames() {
@@ -272,17 +826,17 @@ final class DesktopPetBehaviorTests: XCTestCase {
         )
     }
 
-    func testFurinaAtlasGeometryMatchesCodexPetsContract() {
-        XCTAssertEqual(FurinaPetAtlasSpec.columns, 8)
-        XCTAssertEqual(FurinaPetAtlasSpec.rows, 9)
-        XCTAssertEqual(FurinaPetAtlasSpec.cellWidth, 192)
-        XCTAssertEqual(FurinaPetAtlasSpec.cellHeight, 208)
-        XCTAssertEqual(FurinaPetAtlasSpec.atlasWidth, 1536)
-        XCTAssertEqual(FurinaPetAtlasSpec.atlasHeight, 1872)
+    func testPetAtlasGeometryMatchesCodexPetsContract() {
+        XCTAssertEqual(PetAtlasSpec.columns, 8)
+        XCTAssertEqual(PetAtlasSpec.rows, 9)
+        XCTAssertEqual(PetAtlasSpec.cellWidth, 192)
+        XCTAssertEqual(PetAtlasSpec.cellHeight, 208)
+        XCTAssertEqual(PetAtlasSpec.atlasWidth, 1536)
+        XCTAssertEqual(PetAtlasSpec.atlasHeight, 1872)
     }
 
     func testFurinaSpritesheetDataAssetIsBundled() {
-        guard let dataAsset = NSDataAsset(name: FurinaPetAtlasSpec.assetName) else {
+        guard let dataAsset = NSDataAsset(name: PetAtlasRepository.bundledAssetName) else {
             XCTFail("Expected bundled Furina spritesheet data asset")
             return
         }
@@ -293,18 +847,18 @@ final class DesktopPetBehaviorTests: XCTestCase {
             return
         }
 
-        XCTAssertEqual(image.width, FurinaPetAtlasSpec.atlasWidth)
-        XCTAssertEqual(image.height, FurinaPetAtlasSpec.atlasHeight)
+        XCTAssertEqual(image.width, PetAtlasSpec.atlasWidth)
+        XCTAssertEqual(image.height, PetAtlasSpec.atlasHeight)
     }
 
-    func testPetAnimationsMapToFurinaAtlasRows() {
-        XCTAssertEqual(PetAnimation.idleBreathe.furinaAtlasState, .idle)
-        XCTAssertEqual(PetAnimation.bubbleThink.furinaAtlasState, .review)
-        XCTAssertEqual(PetAnimation.talkWalk.furinaAtlasState, .running)
-        XCTAssertEqual(PetAnimation.outputBurst.furinaAtlasState, .running)
-        XCTAssertEqual(PetAnimation.awaitJump.furinaAtlasState, .waiting)
-        XCTAssertEqual(PetAnimation.errorFall.furinaAtlasState, .failed)
-        XCTAssertEqual(PetAnimation.dragHover.furinaAtlasState, .jumping)
+    func testPetAnimationsMapToAtlasRows() {
+        XCTAssertEqual(PetAnimation.idleBreathe.petAtlasState, .idle)
+        XCTAssertEqual(PetAnimation.bubbleThink.petAtlasState, .review)
+        XCTAssertEqual(PetAnimation.talkWalk.petAtlasState, .running)
+        XCTAssertEqual(PetAnimation.outputBurst.petAtlasState, .running)
+        XCTAssertEqual(PetAnimation.awaitJump.petAtlasState, .waiting)
+        XCTAssertEqual(PetAnimation.errorFall.petAtlasState, .failed)
+        XCTAssertEqual(PetAnimation.dragHover.petAtlasState, .jumping)
     }
 
     func testPetAnimationsDoNotUseLevelSpecificBodyShapes() {
@@ -324,25 +878,25 @@ final class DesktopPetBehaviorTests: XCTestCase {
         XCTAssertEqual(PetAnimation.idleBreakAnimation(for: 100), .idleStretch)
     }
 
-    func testDirectionalMovementUsesFurinaLeftAndRightRows() {
-        XCTAssertEqual(PetAnimation.talkWalk.furinaAtlasState(facingLeft: nil), .runningRight)
-        XCTAssertEqual(PetAnimation.talkWalk.furinaAtlasState(facingLeft: false), .runningRight)
-        XCTAssertEqual(PetAnimation.talkWalk.furinaAtlasState(facingLeft: true), .runningLeft)
-        XCTAssertEqual(PetAnimation.outputBurst.furinaAtlasState(facingLeft: nil), .runningRight)
-        XCTAssertEqual(PetAnimation.outputBurst.furinaAtlasState(facingLeft: false), .runningRight)
-        XCTAssertEqual(PetAnimation.idleBreathe.furinaAtlasState(facingLeft: true), .idle)
+    func testDirectionalMovementUsesLeftAndRightRows() {
+        XCTAssertEqual(PetAnimation.talkWalk.petAtlasState(facingLeft: nil), .runningRight)
+        XCTAssertEqual(PetAnimation.talkWalk.petAtlasState(facingLeft: false), .runningRight)
+        XCTAssertEqual(PetAnimation.talkWalk.petAtlasState(facingLeft: true), .runningLeft)
+        XCTAssertEqual(PetAnimation.outputBurst.petAtlasState(facingLeft: nil), .runningRight)
+        XCTAssertEqual(PetAnimation.outputBurst.petAtlasState(facingLeft: false), .runningRight)
+        XCTAssertEqual(PetAnimation.idleBreathe.petAtlasState(facingLeft: true), .idle)
     }
 
-    func testFurinaFrameIndexWrapsToAtlasColumns() {
-        XCTAssertEqual(FurinaPetAtlasSpec.visibleColumnCount(for: .idle), 6)
-        XCTAssertEqual(FurinaPetAtlasSpec.visibleColumnCount(for: .waving), 4)
-        XCTAssertEqual(FurinaPetAtlasSpec.visibleColumnCount(for: .jumping), 5)
-        XCTAssertEqual(FurinaPetAtlasSpec.visibleColumnCount(for: .runningRight), 8)
+    func testPetFrameIndexWrapsToAtlasColumns() {
+        XCTAssertEqual(PetAtlasSpec.visibleColumnCount(for: .idle), 6)
+        XCTAssertEqual(PetAtlasSpec.visibleColumnCount(for: .waving), 4)
+        XCTAssertEqual(PetAtlasSpec.visibleColumnCount(for: .jumping), 5)
+        XCTAssertEqual(PetAtlasSpec.visibleColumnCount(for: .runningRight), 8)
 
-        XCTAssertEqual(FurinaPetAtlasSpec.normalizedFrameIndex(5, for: .idle), 5)
-        XCTAssertEqual(FurinaPetAtlasSpec.normalizedFrameIndex(6, for: .idle), 0)
-        XCTAssertEqual(FurinaPetAtlasSpec.normalizedFrameIndex(7, for: .waving), 3)
-        XCTAssertEqual(FurinaPetAtlasSpec.normalizedFrameIndex(8, for: .runningRight), 0)
+        XCTAssertEqual(PetAtlasSpec.normalizedFrameIndex(5, for: .idle), 5)
+        XCTAssertEqual(PetAtlasSpec.normalizedFrameIndex(6, for: .idle), 0)
+        XCTAssertEqual(PetAtlasSpec.normalizedFrameIndex(7, for: .waving), 3)
+        XCTAssertEqual(PetAtlasSpec.normalizedFrameIndex(8, for: .runningRight), 0)
     }
 
     func testRoamingSpeedsFollowStatePriority() {
@@ -384,16 +938,17 @@ final class DesktopPetBehaviorTests: XCTestCase {
         XCTAssertLessThanOrEqual(PetAnimation.awaitJump.fps, 7)
     }
 
-    func testFurinaFrameCacheKeyIncludesForm() {
+    func testBundledPetFrameCacheKeyIncludesForm() {
         XCTAssertNotEqual(
-            FurinaPetFrameKey(state: .idle, column: 0, form: .original),
-            FurinaPetFrameKey(state: .idle, column: 0, form: .fullPink)
+            PetFrameKey(state: .idle, column: 0, source: .bundled(.original)),
+            PetFrameKey(state: .idle, column: 0, source: .bundled(.fullPink))
         )
     }
 
     func testFurinaRecolorChangesOpaquePixelsWithoutChangingTransparentMask() {
-        guard let original = FurinaPetAtlas.shared.image(for: .idle, frame: 0, form: .original),
-              let fullPink = FurinaPetAtlas.shared.image(for: .idle, frame: 0, form: .fullPink),
+        let repository = makeBundledPetRepository()
+        guard let original = repository.image(for: .idle, frame: 0, form: .original),
+              let fullPink = repository.image(for: .idle, frame: 0, form: .fullPink),
               let originalData = rgbaData(from: original),
               let fullPinkData = rgbaData(from: fullPink) else {
             XCTFail("Expected Furina frames to render")
@@ -405,8 +960,9 @@ final class DesktopPetBehaviorTests: XCTestCase {
     }
 
     func testFurinaHairStageDiffersFromHatStage() {
-        guard let hat = FurinaPetAtlas.shared.image(for: .idle, frame: 0, form: .hatPink),
-              let hair = FurinaPetAtlas.shared.image(for: .idle, frame: 0, form: .hairPink),
+        let repository = makeBundledPetRepository()
+        guard let hat = repository.image(for: .idle, frame: 0, form: .hatPink),
+              let hair = repository.image(for: .idle, frame: 0, form: .hairPink),
               let hatData = rgbaData(from: hat),
               let hairData = rgbaData(from: hair) else {
             XCTFail("Expected Furina frames to render")
@@ -418,7 +974,7 @@ final class DesktopPetBehaviorTests: XCTestCase {
 
     func testIpcDecoderRecognizesDailyTokenUsage() {
         let line = """
-        {"type":"daily_token_usage","local_date":"2026-07-01","total_input":120,"total_cached_input":30,"total_output":45,"total_reasoning":5,"total_tokens":165,"session_count":3,"updated_at":"2026-07-01T08:00:00Z"}
+        {"type":"daily_token_usage","local_date":"2026-07-01","total_input":120,"total_cached_input":30,"total_output":45,"total_reasoning":5,"total_tokens":165,"session_count":3,"request_count":17,"updated_at":"2026-07-01T08:00:00Z"}
         """
 
         switch IpcEventDecoder().decode(line: line) {
@@ -426,9 +982,40 @@ final class DesktopPetBehaviorTests: XCTestCase {
             XCTAssertEqual(snapshot.localDate, "2026-07-01")
             XCTAssertEqual(snapshot.totalTokens, 165)
             XCTAssertEqual(snapshot.sessionCount, 3)
+            XCTAssertEqual(snapshot.requestCount, 17)
         default:
             XCTFail("Expected daily token snapshot")
         }
+    }
+
+    @MainActor
+    func testTokenStoreKeepsActiveSessionAndMachineTotalsSeparate() {
+        let store = TokenStore.shared
+        store.reset()
+        let global = GlobalTokenUsageSnapshot(
+            type: "global_token_usage",
+            totalInput: 1_000,
+            totalCachedInput: 750,
+            totalOutput: 100,
+            totalReasoning: 20,
+            totalTokens: 1_100,
+            sessionCount: 4,
+            updatedAt: Date()
+        )
+        store.update(with: global)
+        store.update(with: tokenSnapshot(
+            sessionId: "active-session",
+            totalInput: 200,
+            timestamp: Date()
+        ))
+
+        XCTAssertEqual(store.totalInput, 200)
+        XCTAssertEqual(store.globalTotalInput, 1_000)
+        XCTAssertEqual(store.globalTotalCachedInput, 750)
+        XCTAssertEqual(store.globalTotalOutput, 100)
+        XCTAssertEqual(store.globalTotalTokens, 1_100)
+        XCTAssertEqual(store.globalCacheHitPercent, "75.0%")
+        store.reset()
     }
 
     func testIpcDecoderRecognizesTokenContextUsage() {
@@ -477,6 +1064,130 @@ final class DesktopPetBehaviorTests: XCTestCase {
         }
     }
 
+    @MainActor
+    func testAbortedSessionNoLongerWinsAsRunning() {
+        TokenStore.shared.reset()
+        let bus = EventBus(minimumActiveDisplayDuration: 0)
+        let startedAt = Date(timeIntervalSince1970: 100)
+
+        bus.handleStateEvent(SessionStateEvent(
+            sessionId: "stale-subagent",
+            state: .running,
+            activityKind: .fileChange,
+            turnState: .inProgress,
+            source: .jsonl,
+            timestamp: startedAt
+        ))
+        bus.handleStateEvent(SessionStateEvent(
+            sessionId: "finished-main",
+            state: .idle,
+            turnState: .completed,
+            source: .jsonl,
+            timestamp: startedAt.addingTimeInterval(1)
+        ))
+
+        XCTAssertEqual(bus.activeSessionId, "stale-subagent")
+        XCTAssertEqual(bus.sessionState, .running)
+
+        bus.handleStateEvent(SessionStateEvent(
+            sessionId: "stale-subagent",
+            state: .idle,
+            turnState: .interrupted,
+            source: .jsonl,
+            timestamp: startedAt.addingTimeInterval(2)
+        ))
+
+        XCTAssertEqual(bus.sessionState, .idle)
+        XCTAssertEqual(bus.activityKind, .none)
+        XCTAssertEqual(bus.turnState, .interrupted)
+        TokenStore.shared.reset()
+    }
+
+    @MainActor
+    func testRuntimeDisconnectClearsStateButPreservesToken() {
+        TokenStore.shared.reset()
+        let bus = EventBus(minimumActiveDisplayDuration: 0)
+        let snapshot = tokenSnapshot(sessionId: "session-a", totalInput: 120, timestamp: Date())
+
+        bus.handleTokenSnapshot(snapshot)
+        bus.handleStateEvent(SessionStateEvent(
+            sessionId: "session-a",
+            state: .running,
+            activityKind: .commandExecution,
+            turnState: .inProgress,
+            source: .appServer,
+            timestamp: snapshot.timestamp
+        ))
+        bus.handleRuntimeDisconnected()
+
+        XCTAssertEqual(bus.activeSessionId, "session-a")
+        XCTAssertEqual(bus.sessionState, .notLoaded)
+        XCTAssertEqual(bus.activityKind, .none)
+        XCTAssertNil(bus.turnState)
+        XCTAssertEqual(bus.latestToken?.totalInput, 120)
+        TokenStore.shared.reset()
+    }
+
+    @MainActor
+    func testTokenSelectionRefreshesStateAndTokenTogether() {
+        TokenStore.shared.reset()
+        let bus = EventBus(minimumActiveDisplayDuration: 0)
+        let base = Date(timeIntervalSince1970: 200)
+
+        bus.handleStateEvent(SessionStateEvent(
+            sessionId: "session-a",
+            state: .idle,
+            turnState: .completed,
+            source: .jsonl,
+            timestamp: base
+        ))
+        bus.handleTokenSnapshot(tokenSnapshot(
+            sessionId: "session-a",
+            totalInput: 100,
+            timestamp: base
+        ))
+        bus.handleStateEvent(SessionStateEvent(
+            sessionId: "session-b",
+            state: .idle,
+            turnState: .completed,
+            source: .jsonl,
+            timestamp: base.addingTimeInterval(1)
+        ))
+        bus.handleTokenSnapshot(tokenSnapshot(
+            sessionId: "session-b",
+            totalInput: 200,
+            timestamp: base.addingTimeInterval(2)
+        ))
+
+        XCTAssertEqual(bus.activeSessionId, "session-b")
+        XCTAssertEqual(bus.sessionState, .idle)
+        XCTAssertEqual(bus.latestToken?.sessionId, "session-b")
+        XCTAssertEqual(bus.latestToken?.totalInput, 200)
+        TokenStore.shared.reset()
+    }
+
+    private func tokenSnapshot(sessionId: String, totalInput: Int, timestamp: Date) -> TokenSnapshot {
+        TokenSnapshot(
+            sessionId: sessionId,
+            sessionFile: "/tmp/\(sessionId).jsonl",
+            deltaInput: totalInput,
+            deltaCachedInput: 0,
+            deltaUncachedInput: totalInput,
+            deltaOutput: 1,
+            deltaReasoning: 0,
+            totalInput: totalInput,
+            totalCachedInput: 0,
+            totalUncachedInput: totalInput,
+            totalOutput: 1,
+            totalReasoning: 0,
+            contextUsed: nil,
+            contextWindow: nil,
+            cacheHitRate: 0,
+            timestamp: timestamp,
+            turnIndex: 1
+        )
+    }
+
     private func center(of origin: CGPoint) -> CGPoint {
         CGPoint(
             x: origin.x + windowSize.width / 2,
@@ -488,6 +1199,15 @@ final class DesktopPetBehaviorTests: XCTestCase {
         let dx = lhs.x - rhs.x
         let dy = lhs.y - rhs.y
         return sqrt(dx * dx + dy * dy)
+    }
+
+    private func makeBundledPetRepository() -> PetAtlasRepository {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CodexIslandBundledPetTests-\(UUID().uuidString)", isDirectory: true)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: root)
+        }
+        return PetAtlasRepository(catalog: CustomPetCatalog(rootDirectory: root))
     }
 
     private func rgbaData(from image: NSImage) -> [UInt8]? {

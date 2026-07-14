@@ -6,8 +6,6 @@ struct StreamingView: View {
     @ObservedObject private var evolutionStore = PetEvolutionStore.shared
 
     var body: some View {
-        let pillSize = settings.capsuleStyle.pillSize(desktopPetEnabled: settings.isDesktopPetEnabled)
-
         HStack(spacing: 8) {
             if !settings.isDesktopPetEnabled {
                 RoamingPetView(
@@ -21,10 +19,7 @@ struct StreamingView: View {
             TokenInfoRow(style: settings.capsuleStyle)
         }
         .padding(.horizontal, 10)
-        .frame(
-            width: pillSize.width,
-            height: pillSize.height,
-            alignment: .leading
-        )
+        .frame(height: settings.capsuleStyle.pillSize.height, alignment: .leading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
 }
