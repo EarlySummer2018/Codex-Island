@@ -11,6 +11,7 @@ Codex Island 是一个面向 Codex Desktop 的 macOS 顶部胶囊与桌面宠物
 - 根据本机全部 Codex 会话的累计 token 计算宠物等级和成长进度。
 - 支持大/小胶囊、桌宠模式、长按拖动和按显示器保存位置。
 - 支持十阶段自定义宠物，胶囊、展开面板、桌宠和漫游宠物统一生效。
+- 支持从设置面板或状态栏菜单一键重启应用，重新加载自定义宠物。
 - Rust sidecar 只处理 token 与状态元数据，不转发用户输入或 AI 回复正文。
 
 ## 自定义十阶段宠物
@@ -63,7 +64,7 @@ ${CODEX_HOME:-$HOME/.codex}/pets/codex-island-stages/
 2. 当前阶段未配置或无效，但第一阶段有效时，继承第一阶段的自定义宠物。
 3. 第一阶段也未配置或无效时，使用当前等级原本对应的内置默认宠物。
 
-自定义资源会在应用启动时扫描。替换文件后需要完全退出并重启 Codex Island，不支持运行中热更新。
+自定义资源会在应用启动时扫描。替换文件后，可以从设置面板点击重启图标，或从状态栏菜单选择“重启应用”加载新资源；不支持运行中热更新。
 
 ## 环境要求
 
@@ -118,8 +119,8 @@ sidecar 优先消费 Codex App-Server 事件，必要时回退到脱敏后的本
 发布版本以 `project.yml` 中的 `MARKETING_VERSION` 为准。版本 tag 必须与它一致：
 
 ```bash
-git tag v1.1.2
-git push origin v1.1.2
+git tag v1.2.0
+git push origin v1.2.0
 ```
 
 GitHub Actions 会验证版本、运行 Rust 与 Swift 测试、构建 universal 与 x86_64 macOS 应用，并生成 `.zip`、`.dmg`、`.pkg`、SHA-256 校验文件和中文 Release Notes。

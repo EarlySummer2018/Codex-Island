@@ -83,7 +83,12 @@ final class CustomPetCatalog {
     }
 
     static func bootstrap() {
-        _ = shared
+        shared.reloadPackages()
+    }
+
+    func reloadPackages() {
+        prepareDirectories()
+        packages = scanPackages()
     }
 
     func package(for form: PetForm) -> CustomPetPackage? {
@@ -332,6 +337,16 @@ final class PetAtlasRepository {
     ) {
         self.catalog = catalog
         self.bundledImageProvider = bundledImageProvider
+    }
+
+    static func bootstrap() {
+        shared.reloadCustomPets()
+    }
+
+    func reloadCustomPets() {
+        catalog.reloadPackages()
+        customLoads.removeAll(keepingCapacity: true)
+        frameCache.removeAll(keepingCapacity: true)
     }
 
     func image(for state: PetAtlasState, frame: Int, form: PetForm) -> NSImage? {

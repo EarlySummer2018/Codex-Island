@@ -151,6 +151,31 @@ final class CustomPetCatalogTests: XCTestCase {
         XCTAssertEqual(repository.sourceKind(for: .fullPink), .custom(.stage1))
     }
 
+    func testLevelElevenUsesFirstStageWhenSecondStageIsMissing() throws {
+        let root = makeTemporaryRoot()
+        let catalog = CustomPetCatalog(rootDirectory: root)
+        try writeValidPackage(stage: .stage1, catalog: catalog)
+
+        let repository = PetAtlasRepository(catalog: catalog)
+        repository.reloadCustomPets()
+
+        let form = PetForm.form(for: 11)
+        XCTAssertEqual(form, .shoesPink)
+        XCTAssertEqual(repository.sourceKind(for: form), .custom(.stage1))
+    }
+
+    func testStartupReloadFindsPackagesAddedAfterCatalogInitialization() throws {
+        let root = makeTemporaryRoot()
+        let catalog = CustomPetCatalog(rootDirectory: root)
+        let repository = PetAtlasRepository(catalog: catalog)
+        XCTAssertEqual(repository.sourceKind(for: .shoesPink), .bundled(.shoesPink))
+
+        try writeValidPackage(stage: .stage1, catalog: catalog)
+        repository.reloadCustomPets()
+
+        XCTAssertEqual(repository.sourceKind(for: .shoesPink), .custom(.stage1))
+    }
+
     func testConfiguredLaterStageWinsWhileOtherMissingStagesUseBundledDefaultsWithoutStageOne() throws {
         let root = makeTemporaryRoot()
         let initialCatalog = CustomPetCatalog(rootDirectory: root)

@@ -99,6 +99,26 @@ struct SettingsPanelView: View {
             .buttonStyle(.plain)
             .help(settings.text(.customPets))
 
+            Button {
+                AppRelauncher.restart()
+            } label: {
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(PanelPalette.text)
+                    .frame(width: 26, height: 26)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(PanelPalette.control)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .stroke(PanelPalette.magenta.opacity(0.20), lineWidth: 1)
+                    )
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(settings.text(.restartApp))
+            .help(settings.text(.restartApp))
+
             Button(action: onBack) {
                 Image(systemName: "xmark")
                     .font(.system(size: 12, weight: .bold))

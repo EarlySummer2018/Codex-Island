@@ -14,6 +14,7 @@ final class NotchIslandPanel: NSPanel {
     private var dragStartMouseLocation: NSPoint = .zero
     private var dragStartFrame: NSRect = .zero
     private var dragResistanceScreen: NSScreen?
+    private var suppressHoverExpansionUntilMouseExit = false
     private var outsideClickGlobalMonitor: Any?
     private var outsideClickLocalMonitor: Any?
     private var anchorState = IslandWindowAnchorState()
@@ -125,14 +126,18 @@ final class NotchIslandPanel: NSPanel {
         settings.$capsuleStyle
             .dropFirst()
             .sink { [weak self] _ in
-                self?.relayout(animated: true)
+                DispatchQueue.main.async {
+                    self?.applyCapsuleStyleChange()
+                }
             }
             .store(in: &cancellables)
 
         settings.$isDesktopPetEnabled
             .dropFirst()
             .sink { [weak self] _ in
-                self?.relayout(animated: true)
+                DispatchQueue.main.async {
+                    self?.relayout(animated: true)
+                }
             }
             .store(in: &cancellables)
 
@@ -170,9 +175,14 @@ final class NotchIslandPanel: NSPanel {
         }
 
         if !hovered {
+            suppressHoverExpansionUntilMouseExit = false
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
                 self?.syncHoverStateWithMouseLocation()
             }
+            return
+        }
+
+        guard !suppressHoverExpansionUntilMouseExit else {
             return
         }
 
@@ -195,6 +205,13 @@ final class NotchIslandPanel: NSPanel {
         }
 
         let isMouseInside = frame.insetBy(dx: -2, dy: -2).contains(NSEvent.mouseLocation)
+
+        if suppressHoverExpansionUntilMouseExit {
+            guard !isMouseInside else {
+                return
+            }
+            suppressHoverExpansionUntilMouseExit = false
+        }
 
         if isMouseInside {
             if !transitionState.isExpansionActive {
@@ -231,6 +248,20 @@ final class NotchIslandPanel: NSPanel {
         contentModel.isExpanded = false
         contentModel.expandedMode = .dashboard
         stopOutsideClickMonitoring()
+
+        transition(to: transitionState.restingShape)
+    }
+
+    private func applyCapsuleStyleChange() {
+        guard isVisible, settings.isCapsuleVisible else {
+            return
+        }
+
+        if transitionState.isExpansionActive || transitionState.currentShape == .expanded {
+            suppressHoverExpansionUntilMouseExit = settings.capsuleExpansionTrigger == .hover
+            collapseFromInteraction()
+            return
+        }
 
         transition(to: transitionState.restingShape)
     }
@@ -466,6 +497,7 @@ final class NotchIslandPanel: NSPanel {
         transitionState.reset(restingShape: .pill)
         isPressingForDrag = false
         isDragging = false
+        suppressHoverExpansionUntilMouseExit = false
         contentModel.isExpanded = false
         contentModel.isExpandedContainer = false
         contentModel.expandedMode = .dashboard
@@ -1391,13 +1423,13 @@ private final class NotchIslandHostingView: NSHostingView<NotchIslandView> {
 enum IslandInteractionRegion: Equatable {
     case content
     case drag
-    case settingsButton
+    case headerControls
 }
 
 enum IslandInteractionHitTest {
     static let expandedHeaderHeight: CGFloat = 64
-    static let settingsButtonSize = CGSize(width: 44, height: 44)
-    static let settingsButtonInset: CGFloat = 10
+    static let headerControlsSize = CGSize(width: 194, height: 44)
+    static let headerControlsInset: CGFloat = 10
 
     static func region(
         for point: NSPoint,
@@ -1412,8 +1444,8 @@ enum IslandInteractionHitTest {
             return .drag
         }
 
-        if settingsButtonFrame(in: bounds, isFlipped: isFlipped).contains(point) {
-            return .settingsButton
+        if headerControlsFrame(in: bounds, isFlipped: isFlipped).contains(point) {
+            return .headerControls
         }
 
         if headerFrame(in: bounds, isFlipped: isFlipped).contains(point) {
@@ -1433,15 +1465,15 @@ enum IslandInteractionHitTest {
         )
     }
 
-    static func settingsButtonFrame(in bounds: NSRect, isFlipped: Bool) -> NSRect {
+    static func headerControlsFrame(in bounds: NSRect, isFlipped: Bool) -> NSRect {
         let y = isFlipped
-            ? bounds.minY + settingsButtonInset
-            : bounds.maxY - settingsButtonInset - settingsButtonSize.height
+            ? bounds.minY + headerControlsInset
+            : bounds.maxY - headerControlsInset - headerControlsSize.height
         return NSRect(
-            x: bounds.maxX - settingsButtonInset - settingsButtonSize.width,
+            x: bounds.maxX - headerControlsInset - headerControlsSize.width,
             y: y,
-            width: settingsButtonSize.width,
-            height: settingsButtonSize.height
+            width: headerControlsSize.width,
+            height: headerControlsSize.height
         )
     }
 }

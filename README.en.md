@@ -11,6 +11,7 @@ Codex Island is a macOS top-screen capsule and desktop pet for Codex Desktop. It
 - Pet levels and evolution based on cumulative usage across all local Codex sessions.
 - Large and small capsule styles, desktop pet mode, long-press dragging, and per-display position persistence.
 - Ten-stage custom pets shared by the capsule, expanded panel, desktop pet, and roaming pet.
+- One-click app restart from Settings or the menu bar to reload custom pets.
 - A Rust sidecar that processes token and state metadata without forwarding prompts, user messages, or assistant response text.
 
 ## Ten-Stage Custom Pets
@@ -58,7 +59,7 @@ Resource priority:
 2. Otherwise inherit the valid stage-one custom pet.
 3. If stage one is also missing or invalid, use the built-in default pet for the current level.
 
-Custom resources are scanned at startup. Fully quit and restart Codex Island after replacing files; hot reload is intentionally not supported.
+Custom resources are scanned at startup. After replacing files, use the restart icon in Settings or choose **Restart App** from the menu bar to load them; hot reload is intentionally not supported.
 
 ## Requirements
 
@@ -113,8 +114,8 @@ The sidecar prefers Codex App-Server events and falls back to sanitized local JS
 The release version comes from `MARKETING_VERSION` in `project.yml`. The version tag must match it:
 
 ```bash
-git tag v1.1.2
-git push origin v1.1.2
+git tag v1.2.0
+git push origin v1.2.0
 ```
 
 GitHub Actions validates the version, runs Rust and Swift tests, builds universal and x86_64 macOS applications, and publishes `.zip`, `.dmg`, `.pkg`, SHA-256 checksums, and Chinese release notes.

@@ -60,6 +60,7 @@ enum AppTextKey {
     case checkingForUpdates
     case downloadingUpdate
     case restartToUpdate
+    case restartApp
     case resetCapsulePosition
     case quit
     case notLoaded
@@ -172,6 +173,7 @@ final class AppSettingsStore: ObservableObject {
         case .checkingForUpdates: return "正在检查更新..."
         case .downloadingUpdate: return "下载中..."
         case .restartToUpdate: return "重启以更新"
+        case .restartApp: return "重启应用"
         case .resetCapsulePosition: return "重置胶囊位置"
         case .quit: return "退出"
         case .notLoaded: return "空闲"
@@ -218,6 +220,7 @@ final class AppSettingsStore: ObservableObject {
         case .checkingForUpdates: return "Checking for Updates..."
         case .downloadingUpdate: return "Downloading..."
         case .restartToUpdate: return "Restart to Update"
+        case .restartApp: return "Restart App"
         case .resetCapsulePosition: return "Reset Capsule Position"
         case .quit: return "Quit"
         case .notLoaded: return "Idle"

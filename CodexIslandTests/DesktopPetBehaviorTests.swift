@@ -181,20 +181,28 @@ final class DesktopPetBehaviorTests: XCTestCase {
         XCTAssertEqual(restoredOrigin.y, offscreenFrame.minY, accuracy: 0.001)
     }
 
-    func testIslandInteractionHitAreasPrioritizeSettingsThenHeaderDrag() {
+    func testIslandInteractionHitAreasPrioritizeHeaderControlsThenHeaderDrag() {
         let expandedBounds = CGRect(x: 0, y: 0, width: 440, height: 290)
-        let settingsFrame = IslandInteractionHitTest.settingsButtonFrame(
+        let controlsFrame = IslandInteractionHitTest.headerControlsFrame(
             in: expandedBounds,
             isFlipped: true
         )
 
         XCTAssertEqual(
             IslandInteractionHitTest.region(
-                for: CGPoint(x: settingsFrame.midX, y: settingsFrame.midY),
+                for: CGPoint(x: controlsFrame.maxX - 22, y: controlsFrame.midY),
                 in: expandedBounds,
                 isFlipped: true
             ),
-            .settingsButton
+            .headerControls
+        )
+        XCTAssertEqual(
+            IslandInteractionHitTest.region(
+                for: CGPoint(x: controlsFrame.minX + 56, y: controlsFrame.midY),
+                in: expandedBounds,
+                isFlipped: true
+            ),
+            .headerControls
         )
         XCTAssertEqual(
             IslandInteractionHitTest.region(
@@ -220,6 +228,17 @@ final class DesktopPetBehaviorTests: XCTestCase {
             ),
             .drag
         )
+    }
+
+    func testAppRelauncherPassesBundlePathAsASeparateShellArgument() {
+        let bundleURL = URL(fileURLWithPath: "/tmp/Codex Island's Build/CodexIsland.app")
+        let arguments = AppRelauncher.helperArguments(for: bundleURL)
+
+        XCTAssertEqual(arguments.first, "-c")
+        XCTAssertEqual(arguments[2], "codex-island-restart")
+        XCTAssertEqual(arguments[3], bundleURL.standardizedFileURL.path)
+        XCTAssertFalse(arguments[1].contains(bundleURL.path))
+        XCTAssertTrue(arguments[1].contains("open -n"))
     }
 
     func testIslandPressGestureSeparatesClickFromDrag() {
@@ -517,6 +536,25 @@ final class DesktopPetBehaviorTests: XCTestCase {
                 .collapsed
             )
         }
+    }
+
+    func testCapsuleStyleChangeSettlesExpandedWindowAtNewPillSizeImmediately() {
+        let anchor = IslandWindowAnchor(
+            screenIdentifier: "display-1",
+            midX: 640,
+            maxY: 900
+        )
+        var transitionState = IslandWindowTransitionState(restingShape: .pill)
+        XCTAssertTrue(transitionState.activateExpansion(for: .hover))
+
+        transitionState.deactivateExpansion()
+        let smallSize = CapsuleDisplayStyle.small.pillSize(desktopPetEnabled: true)
+        let transition = transitionState.beginTransition(size: smallSize, anchoredTo: anchor)
+
+        XCTAssertFalse(transitionState.isExpansionActive)
+        XCTAssertEqual(transition.targetShape, .pill)
+        XCTAssertEqual(transition.targetFrame.width, 112, accuracy: 0.001)
+        XCTAssertEqual(transition.targetFrame.midX, anchor.midX, accuracy: 0.001)
     }
 
     func testOutOfOrderExpansionAndCollapseCompletionsOnlySettleLatestTransition() {
