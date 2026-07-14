@@ -2,6 +2,7 @@ pub mod jsonl_watcher;
 pub mod ws_client;
 
 use crate::parser::RawEvent;
+use crate::watcher::ws_client::WsClientEvent;
 use tokio::sync::mpsc;
 
 pub async fn start_all_watchers(sessions_dir: &str, event_tx: mpsc::Sender<RawEvent>) {
@@ -35,7 +36,11 @@ pub async fn start_all_watchers(sessions_dir: &str, event_tx: mpsc::Sender<RawEv
 
     tokio::spawn(async move {
         while let Some(ws_event) = ws_rx.recv().await {
-            if event_tx.send(RawEvent::WsMessage(ws_event)).await.is_err() {
+            let raw_event = match ws_event {
+                WsClientEvent::State(event) => RawEvent::WsMessage(event),
+                WsClientEvent::Lifecycle(lifecycle) => RawEvent::WsLifecycle { lifecycle },
+            };
+            if event_tx.send(raw_event).await.is_err() {
                 break;
             }
         }

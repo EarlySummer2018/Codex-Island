@@ -1,7 +1,7 @@
 use crate::parser::RawEvent;
 use crate::token_usage::token_count_value;
 use crate::watcher::jsonl_watcher::RawJsonlLine;
-use crate::watcher::ws_client::WsStateEvent;
+use crate::watcher::ws_client::{WsLifecycle, WsStateEvent};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -76,10 +76,10 @@ struct SessionTracker {
     activity_kind: ActivityKind,
     turn_state: Option<TurnState>,
     await_reason: Option<AwaitReason>,
-    last_token_time: Option<Instant>,
+    last_activity_time: Option<Instant>,
+    running_timeout: Option<Duration>,
     last_output_tokens: u64,
     error_since: Option<Instant>,
-    running_timeout: Duration,
     error_timeout: Duration,
     fallback_file_change_pin_until: Option<Instant>,
     fallback_file_change_pin_duration: Duration,
@@ -94,10 +94,10 @@ impl Default for SessionTracker {
             activity_kind: ActivityKind::None,
             turn_state: None,
             await_reason: None,
-            last_token_time: None,
+            last_activity_time: None,
+            running_timeout: None,
             last_output_tokens: 0,
             error_since: None,
-            running_timeout: Duration::from_secs(4),
             error_timeout: Duration::from_secs(3),
             fallback_file_change_pin_until: None,
             fallback_file_change_pin_duration: Duration::from_secs(3),
@@ -117,37 +117,55 @@ impl StateParser {
         Self::default()
     }
 
-    pub fn process_event(&mut self, event: &RawEvent) -> Option<SessionStateEvent> {
+    pub fn process_event(&mut self, event: &RawEvent) -> Vec<SessionStateEvent> {
         match event {
-            RawEvent::JsonlLine(line) => self.process_jsonl(line),
-            RawEvent::WsMessage(ws_event) => self.process_ws(ws_event),
+            RawEvent::JsonlLine(line) => self.process_jsonl(line).into_iter().collect(),
+            RawEvent::WsMessage(ws_event) => self.process_ws(ws_event).into_iter().collect(),
+            RawEvent::WsLifecycle {
+                lifecycle: WsLifecycle::Connected,
+            } => Vec::new(),
+            RawEvent::WsLifecycle {
+                lifecycle: WsLifecycle::Disconnected,
+            } => self.handle_ws_disconnected(),
         }
     }
 
     pub fn process_jsonl(&mut self, line: &RawJsonlLine) -> Option<SessionStateEvent> {
         let session_id = line.session_id.as_deref().unwrap_or("unknown").to_string();
         let payload_type = line.payload_type.as_deref()?;
+        let timestamp = line.timestamp.unwrap_or_else(Utc::now);
 
         match payload_type {
             "task_started" | "user_message" | "reasoning" => {
-                self.apply_jsonl_running(&session_id, ActivityKind::Reasoning)
+                self.apply_jsonl_running(line, &session_id, ActivityKind::Reasoning)
             }
-            "agent_message" => self.apply_jsonl_running(&session_id, ActivityKind::AgentMessage),
+            "agent_message" => {
+                self.apply_jsonl_running(line, &session_id, ActivityKind::AgentMessage)
+            }
             "tool_call" => self.apply_jsonl_running(
+                line,
                 &session_id,
                 tool_name_to_activity(string_payload(&line.parsed, "tool").as_deref()),
             ),
-            "web_search" => self.apply_jsonl_running(&session_id, ActivityKind::WebSearch),
-            "patch_apply_end" => self.apply_jsonl_running(&session_id, ActivityKind::FileChange),
-            "token_count" => self.process_token_count(&session_id, &line.parsed),
+            "web_search" => self.apply_jsonl_running(line, &session_id, ActivityKind::WebSearch),
+            "patch_apply_end" => {
+                self.apply_jsonl_running(line, &session_id, ActivityKind::FileChange)
+            }
+            "token_count" => self.process_token_count(line, &session_id, &line.parsed),
             "assistant_message_stop" | "task_complete" => {
-                self.update_tracker(&session_id, StateSource::Jsonl, |tracker| {
-                    if tracker.runtime_locked_to_ws {
-                        return;
-                    }
+                self.update_tracker_at(&session_id, StateSource::Jsonl, timestamp, |tracker| {
                     tracker.state = SessionState::Idle;
                     tracker.activity_kind = ActivityKind::None;
                     tracker.turn_state = Some(TurnState::Completed);
+                    clear_runtime_activity(tracker);
+                })
+            }
+            "turn_aborted" => {
+                self.update_tracker_at(&session_id, StateSource::Jsonl, timestamp, |tracker| {
+                    tracker.state = SessionState::Idle;
+                    tracker.activity_kind = ActivityKind::None;
+                    tracker.turn_state = Some(TurnState::Interrupted);
+                    clear_runtime_activity(tracker);
                 })
             }
             "awaiting_approval" => {
@@ -155,7 +173,7 @@ impl StateParser {
                     string_payload(&line.parsed, "tool").unwrap_or_else(|| "unknown".to_string());
                 let command = string_payload(&line.parsed, "command");
                 let activity_kind = tool_name_to_activity(Some(tool.as_str()));
-                self.update_tracker(&session_id, StateSource::Jsonl, |tracker| {
+                self.update_tracker_at(&session_id, StateSource::Jsonl, timestamp, |tracker| {
                     if tracker.runtime_locked_to_ws {
                         return;
                     }
@@ -165,32 +183,36 @@ impl StateParser {
                     tracker.state = SessionState::WaitingForInput;
                     tracker.turn_state = Some(TurnState::InProgress);
                     tracker.await_reason = Some(AwaitReason::ToolApproval { tool, command });
+                    mark_jsonl_activity(tracker, line);
                 })
             }
             "tool_approval" => {
                 let approved = bool_payload(&line.parsed, "approved").unwrap_or(false);
-                self.update_tracker(&session_id, StateSource::Jsonl, |tracker| {
+                self.update_tracker_at(&session_id, StateSource::Jsonl, timestamp, |tracker| {
                     if tracker.runtime_locked_to_ws {
                         return;
                     }
                     tracker.await_reason = None;
                     if approved {
                         tracker.state = SessionState::Running;
-                        if !tracker.activity_locked_to_ws {
-                            if tracker.activity_kind == ActivityKind::None {
-                                tracker.activity_kind = ActivityKind::CommandExecution;
-                            }
+                        if !tracker.activity_locked_to_ws
+                            && tracker.activity_kind == ActivityKind::None
+                        {
+                            tracker.activity_kind = ActivityKind::CommandExecution;
                         }
                         tracker.turn_state = Some(TurnState::InProgress);
+                        mark_jsonl_activity(tracker, line);
+                        tracker.running_timeout = running_timeout_for(&tracker.activity_kind);
                     } else {
                         tracker.state = SessionState::Idle;
                         tracker.activity_kind = ActivityKind::None;
                         tracker.turn_state = Some(TurnState::Interrupted);
+                        clear_runtime_activity(tracker);
                     }
                 })
             }
             "error" | "turn_error" | "stream_error" => {
-                Some(self.set_error(&session_id, StateSource::Jsonl))
+                Some(self.set_error_at(&session_id, StateSource::Jsonl, timestamp))
             }
             _ => None,
         }
@@ -351,8 +373,53 @@ impl StateParser {
         }
     }
 
-    pub fn set_error(&mut self, session_id: &str, source: StateSource) -> SessionStateEvent {
-        self.update_tracker(session_id, source, |tracker| {
+    fn handle_ws_disconnected(&mut self) -> Vec<SessionStateEvent> {
+        let session_ids: Vec<String> = self
+            .trackers
+            .iter()
+            .filter(|(_, tracker)| tracker.runtime_locked_to_ws || tracker.activity_locked_to_ws)
+            .map(|(session_id, _)| session_id.clone())
+            .collect();
+
+        session_ids
+            .into_iter()
+            .filter_map(|session_id| {
+                self.update_tracker(&session_id, StateSource::AppServer, |tracker| {
+                    let was_ws_owned =
+                        tracker.runtime_locked_to_ws || tracker.activity_locked_to_ws;
+                    tracker.runtime_locked_to_ws = false;
+                    tracker.activity_locked_to_ws = false;
+
+                    if was_ws_owned
+                        && matches!(
+                            tracker.state,
+                            SessionState::Running
+                                | SessionState::WaitingForInput
+                                | SessionState::ReadyForReview
+                        )
+                    {
+                        tracker.state = SessionState::NotLoaded;
+                        tracker.activity_kind = ActivityKind::None;
+                        tracker.turn_state = None;
+                        clear_runtime_activity(tracker);
+                    }
+                })
+            })
+            .collect()
+    }
+
+    #[cfg(test)]
+    fn set_error(&mut self, session_id: &str, source: StateSource) -> SessionStateEvent {
+        self.set_error_at(session_id, source, Utc::now())
+    }
+
+    fn set_error_at(
+        &mut self,
+        session_id: &str,
+        source: StateSource,
+        timestamp: DateTime<Utc>,
+    ) -> SessionStateEvent {
+        self.update_tracker_at(session_id, source, timestamp, |tracker| {
             if source == StateSource::AppServer {
                 tracker.runtime_locked_to_ws = true;
             }
@@ -366,17 +433,16 @@ impl StateParser {
 
     pub fn check_timeouts(&mut self) -> Vec<SessionStateEvent> {
         let now = Instant::now();
-        let mut session_ids = Vec::new();
+        let mut running_session_ids = Vec::new();
         let mut error_session_ids = Vec::new();
 
         for (session_id, tracker) in &self.trackers {
-            if tracker.state == SessionState::Running
-                && !tracker.runtime_locked_to_ws
-                && tracker.activity_kind == ActivityKind::AgentMessage
-            {
-                if let Some(last_token_time) = tracker.last_token_time {
-                    if now.duration_since(last_token_time) >= tracker.running_timeout {
-                        session_ids.push(session_id.clone());
+            if tracker.state == SessionState::Running && !tracker.runtime_locked_to_ws {
+                if let (Some(last_activity_time), Some(timeout)) =
+                    (tracker.last_activity_time, tracker.running_timeout)
+                {
+                    if now.duration_since(last_activity_time) >= timeout {
+                        running_session_ids.push(session_id.clone());
                     }
                 }
             }
@@ -392,11 +458,12 @@ impl StateParser {
 
         let mut events = Vec::new();
 
-        for session_id in session_ids {
+        for session_id in running_session_ids {
             if let Some(event) = self.update_tracker(&session_id, StateSource::Jsonl, |tracker| {
                 tracker.state = SessionState::Idle;
                 tracker.activity_kind = ActivityKind::None;
-                tracker.turn_state = Some(TurnState::Completed);
+                tracker.turn_state = Some(TurnState::Interrupted);
+                clear_runtime_activity(tracker);
             }) {
                 info!("[{session_id}] running timeout -> idle");
                 events.push(event);
@@ -430,13 +497,27 @@ impl StateParser {
 
     fn apply_jsonl_running(
         &mut self,
+        line: &RawJsonlLine,
         session_id: &str,
         activity_kind: ActivityKind,
     ) -> Option<SessionStateEvent> {
-        self.update_tracker(session_id, StateSource::Jsonl, |tracker| {
+        let running_timeout = running_timeout_for_line(line, &activity_kind);
+        if line.is_replay && replay_is_expired(line, running_timeout) {
+            return self.update_tracker(session_id, StateSource::Jsonl, |tracker| {
+                tracker.state = SessionState::Idle;
+                tracker.activity_kind = ActivityKind::None;
+                tracker.turn_state = Some(TurnState::Interrupted);
+                clear_runtime_activity(tracker);
+            });
+        }
+
+        let timestamp = line.timestamp.unwrap_or_else(Utc::now);
+        self.update_tracker_at(session_id, StateSource::Jsonl, timestamp, |tracker| {
             if !tracker.runtime_locked_to_ws {
                 tracker.state = SessionState::Running;
                 tracker.turn_state = Some(TurnState::InProgress);
+                mark_jsonl_activity(tracker, line);
+                tracker.running_timeout = running_timeout;
             }
             if !tracker.activity_locked_to_ws
                 && fallback_activity_can_override(tracker, activity_kind.clone())
@@ -452,6 +533,7 @@ impl StateParser {
 
     fn process_token_count(
         &mut self,
+        line: &RawJsonlLine,
         session_id: &str,
         parsed: &Value,
     ) -> Option<SessionStateEvent> {
@@ -462,43 +544,36 @@ impl StateParser {
 
         let tracker = self.trackers.entry(session_id.to_string()).or_default();
 
-        if output_tokens < tracker.last_output_tokens {
+        if line.is_replay {
             tracker.last_output_tokens = output_tokens;
             return None;
         }
 
-        if output_tokens == tracker.last_output_tokens {
-            return None;
+        tracker.last_output_tokens = output_tokens;
+        if tracker.state == SessionState::Running && !tracker.runtime_locked_to_ws {
+            tracker.last_activity_time = Some(Instant::now());
         }
 
-        tracker.last_output_tokens = output_tokens;
-        tracker.last_token_time = Some(Instant::now());
-
-        self.update_tracker(session_id, StateSource::Jsonl, |tracker| {
-            if matches!(
-                tracker.state,
-                SessionState::WaitingForInput | SessionState::ReadyForReview | SessionState::Error
-            ) {
-                return;
-            }
-
-            if !tracker.runtime_locked_to_ws {
-                tracker.state = SessionState::Running;
-                tracker.turn_state = Some(TurnState::InProgress);
-            }
-
-            if !tracker.activity_locked_to_ws
-                && fallback_activity_can_override(tracker, ActivityKind::AgentMessage)
-            {
-                tracker.activity_kind = ActivityKind::AgentMessage;
-            }
-        })
+        None
     }
 
     fn update_tracker<F>(
         &mut self,
         session_id: &str,
         source: StateSource,
+        update: F,
+    ) -> Option<SessionStateEvent>
+    where
+        F: FnOnce(&mut SessionTracker),
+    {
+        self.update_tracker_at(session_id, source, Utc::now(), update)
+    }
+
+    fn update_tracker_at<F>(
+        &mut self,
+        session_id: &str,
+        source: StateSource,
+        timestamp: DateTime<Utc>,
         update: F,
     ) -> Option<SessionStateEvent>
     where
@@ -537,10 +612,65 @@ impl StateParser {
             activity_kind: tracker.activity_kind.clone(),
             turn_state: tracker.turn_state.clone(),
             source,
-            timestamp: Utc::now(),
+            timestamp,
             await_reason: tracker.await_reason.clone(),
         })
     }
+}
+
+fn running_timeout_for(activity_kind: &ActivityKind) -> Option<Duration> {
+    match activity_kind {
+        ActivityKind::AgentMessage => Some(Duration::from_secs(30)),
+        ActivityKind::Reasoning | ActivityKind::WebSearch => Some(Duration::from_secs(30)),
+        ActivityKind::CommandExecution | ActivityKind::FileChange => Some(Duration::from_secs(120)),
+        ActivityKind::None => None,
+    }
+}
+
+fn running_timeout_for_line(line: &RawJsonlLine, activity_kind: &ActivityKind) -> Option<Duration> {
+    if activity_kind == &ActivityKind::AgentMessage {
+        return match string_payload(&line.parsed, "phase").as_deref() {
+            Some("final_answer") => Some(Duration::from_secs(4)),
+            Some("commentary") | None => Some(Duration::from_secs(30)),
+            Some(_) => Some(Duration::from_secs(30)),
+        };
+    }
+
+    running_timeout_for(activity_kind)
+}
+
+fn replay_is_expired(line: &RawJsonlLine, timeout: Option<Duration>) -> bool {
+    let Some(timeout) = timeout else {
+        return false;
+    };
+    let Some(timestamp) = line.timestamp else {
+        return true;
+    };
+
+    Utc::now()
+        .signed_duration_since(timestamp)
+        .to_std()
+        .map(|age| age >= timeout)
+        .unwrap_or(false)
+}
+
+fn mark_jsonl_activity(tracker: &mut SessionTracker, line: &RawJsonlLine) {
+    let now = Instant::now();
+    let age = if line.is_replay {
+        line.timestamp
+            .and_then(|timestamp| Utc::now().signed_duration_since(timestamp).to_std().ok())
+            .unwrap_or_default()
+    } else {
+        Duration::ZERO
+    };
+    tracker.last_activity_time = Some(now.checked_sub(age).unwrap_or(now));
+}
+
+fn clear_runtime_activity(tracker: &mut SessionTracker) {
+    tracker.await_reason = None;
+    tracker.last_activity_time = None;
+    tracker.running_timeout = None;
+    tracker.fallback_file_change_pin_until = None;
 }
 
 fn normalize_tracker(tracker: &mut SessionTracker) {
@@ -739,12 +869,14 @@ fn ws_first_string(params: &Value, keys: &[&str]) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{ActivityKind, AwaitReason, SessionState, StateParser, StateSource, TurnState};
+    use crate::parser::RawEvent;
     use crate::watcher::jsonl_watcher::RawJsonlLine;
-    use crate::watcher::ws_client::WsStateEvent;
+    use crate::watcher::ws_client::{WsLifecycle, WsStateEvent};
+    use chrono::{Duration as ChronoDuration, Utc};
     use serde_json::{json, Value};
     use std::path::PathBuf;
     use std::thread;
-    use tokio::time::Duration;
+    use tokio::time::{Duration, Instant};
 
     fn jsonl(payload: Value) -> RawJsonlLine {
         let payload_type = payload
@@ -757,6 +889,8 @@ mod tests {
             session_id: Some("sess-1".to_string()),
             event_type: "event_msg".to_string(),
             payload_type,
+            timestamp: None,
+            is_replay: false,
             parsed: json!({
                 "type": "event_msg",
                 "payload": payload,
@@ -778,6 +912,13 @@ mod tests {
         jsonl(json!({ "type": "task_started" }))
     }
 
+    fn replay_jsonl(payload: Value, age: ChronoDuration) -> RawJsonlLine {
+        let mut line = jsonl(payload);
+        line.timestamp = Some(Utc::now() - age);
+        line.is_replay = true;
+        line
+    }
+
     #[test]
     fn user_message_moves_to_running_reasoning() {
         let mut parser = StateParser::new();
@@ -792,14 +933,21 @@ mod tests {
     }
 
     #[test]
-    fn token_count_promotes_reasoning_to_agent_message() {
+    fn token_count_renews_running_without_changing_activity() {
         let mut parser = StateParser::new();
         parser.process_jsonl(&task_started()).unwrap();
+        parser
+            .trackers
+            .get_mut("sess-1")
+            .unwrap()
+            .last_activity_time = Some(Instant::now() - Duration::from_secs(29));
 
-        let event = parser.process_jsonl(&token_count(10)).unwrap();
+        assert!(parser.process_jsonl(&token_count(10)).is_none());
 
-        assert_eq!(event.state, SessionState::Running);
-        assert_eq!(event.activity_kind, ActivityKind::AgentMessage);
+        let tracker = parser.trackers.get("sess-1").unwrap();
+        assert_eq!(tracker.state, SessionState::Running);
+        assert_eq!(tracker.activity_kind, ActivityKind::Reasoning);
+        assert!(parser.check_timeouts().is_empty());
     }
 
     #[test]
@@ -884,7 +1032,7 @@ mod tests {
     }
 
     #[test]
-    fn token_count_after_approval_promotes_to_agent_message() {
+    fn token_count_after_approval_preserves_command_activity() {
         let mut parser = StateParser::new();
         parser.process_jsonl(&jsonl(json!({
             "type": "awaiting_approval",
@@ -898,10 +1046,11 @@ mod tests {
             })))
             .unwrap();
 
-        let event = parser.process_jsonl(&token_count(30)).unwrap();
+        assert!(parser.process_jsonl(&token_count(30)).is_none());
 
-        assert_eq!(event.state, SessionState::Running);
-        assert_eq!(event.activity_kind, ActivityKind::AgentMessage);
+        let tracker = parser.trackers.get("sess-1").unwrap();
+        assert_eq!(tracker.state, SessionState::Running);
+        assert_eq!(tracker.activity_kind, ActivityKind::CommandExecution);
     }
 
     #[test]
@@ -1052,14 +1201,208 @@ mod tests {
     }
 
     #[test]
-    fn running_timeout_returns_to_idle() {
+    fn turn_aborted_is_terminal_even_when_websocket_locked() {
+        let mut parser = StateParser::new();
+        parser
+            .process_ws(&WsStateEvent {
+                method: "turn/started".to_string(),
+                params: json!({ "threadId": "sess-1" }),
+            })
+            .unwrap();
+
+        let event = parser
+            .process_jsonl(&jsonl(json!({
+                "type": "turn_aborted",
+                "reason": "interrupted"
+            })))
+            .unwrap();
+
+        assert_eq!(event.state, SessionState::Idle);
+        assert_eq!(event.activity_kind, ActivityKind::None);
+        assert_eq!(event.turn_state, Some(TurnState::Interrupted));
+        assert!(parser
+            .trackers
+            .get("sess-1")
+            .unwrap()
+            .fallback_file_change_pin_until
+            .is_none());
+    }
+
+    #[test]
+    fn replayed_token_count_does_not_create_running_state() {
+        let mut parser = StateParser::new();
+        let mut line = token_count(58_725_289);
+        line.is_replay = true;
+        line.timestamp = Some(Utc::now() - ChronoDuration::hours(12));
+
+        assert!(parser.process_jsonl(&line).is_none());
+        assert_eq!(
+            parser.trackers.get("sess-1").unwrap().state,
+            SessionState::NotLoaded
+        );
+    }
+
+    #[test]
+    fn token_count_does_not_revive_terminal_states() {
+        for (terminal_type, turn_state) in [
+            ("task_complete", TurnState::Completed),
+            ("turn_aborted", TurnState::Interrupted),
+        ] {
+            let mut parser = StateParser::new();
+            parser.process_jsonl(&task_started()).unwrap();
+            parser
+                .process_jsonl(&jsonl(json!({ "type": terminal_type })))
+                .unwrap();
+
+            assert!(parser.process_jsonl(&token_count(20)).is_none());
+            let tracker = parser.trackers.get("sess-1").unwrap();
+            assert_eq!(tracker.state, SessionState::Idle);
+            assert_eq!(tracker.turn_state, Some(turn_state));
+            assert!(tracker.last_activity_time.is_none());
+        }
+    }
+
+    #[test]
+    fn stale_replayed_running_state_becomes_interrupted_idle() {
+        let mut parser = StateParser::new();
+        let event = parser
+            .process_jsonl(&replay_jsonl(
+                json!({ "type": "patch_apply_end" }),
+                ChronoDuration::seconds(121),
+            ))
+            .unwrap();
+
+        assert_eq!(event.state, SessionState::Idle);
+        assert_eq!(event.activity_kind, ActivityKind::None);
+        assert_eq!(event.turn_state, Some(TurnState::Interrupted));
+    }
+
+    #[test]
+    fn fresh_replayed_running_state_preserves_source_timestamp() {
+        let mut parser = StateParser::new();
+        let line = replay_jsonl(json!({ "type": "reasoning" }), ChronoDuration::seconds(5));
+        let source_timestamp = line.timestamp.unwrap();
+        let event = parser.process_jsonl(&line).unwrap();
+
+        assert_eq!(event.state, SessionState::Running);
+        assert_eq!(event.timestamp, source_timestamp);
+    }
+
+    #[test]
+    fn all_jsonl_running_activities_have_layered_timeouts() {
+        let cases = [
+            (
+                json!({ "type": "agent_message", "phase": "final_answer" }),
+                Duration::from_secs(5),
+            ),
+            (
+                json!({ "type": "agent_message", "phase": "commentary" }),
+                Duration::from_secs(31),
+            ),
+            (json!({ "type": "agent_message" }), Duration::from_secs(31)),
+            (json!({ "type": "reasoning" }), Duration::from_secs(31)),
+            (json!({ "type": "web_search" }), Duration::from_secs(31)),
+            (
+                json!({ "type": "tool_call", "tool": "shell" }),
+                Duration::from_secs(121),
+            ),
+            (
+                json!({ "type": "patch_apply_end" }),
+                Duration::from_secs(121),
+            ),
+        ];
+
+        for (payload, age) in cases {
+            let mut parser = StateParser::new();
+            parser.process_jsonl(&jsonl(payload)).unwrap();
+            parser
+                .trackers
+                .get_mut("sess-1")
+                .unwrap()
+                .last_activity_time = Some(Instant::now() - age);
+
+            let events = parser.check_timeouts();
+            assert_eq!(events.len(), 1);
+            assert_eq!(events[0].state, SessionState::Idle);
+            assert_eq!(events[0].turn_state, Some(TurnState::Interrupted));
+        }
+    }
+
+    #[test]
+    fn repeated_jsonl_activity_renews_timeout_even_without_state_change() {
         let mut parser = StateParser::new();
         parser.process_jsonl(&task_started()).unwrap();
-        parser.process_jsonl(&token_count(10)).unwrap();
+        parser
+            .trackers
+            .get_mut("sess-1")
+            .unwrap()
+            .last_activity_time = Some(Instant::now() - Duration::from_secs(29));
 
-        parser.trackers.get_mut("sess-1").unwrap().running_timeout = Duration::from_millis(1);
+        assert!(parser.process_jsonl(&task_started()).is_none());
+        assert!(parser.check_timeouts().is_empty());
+    }
 
-        thread::sleep(std::time::Duration::from_millis(5));
+    #[test]
+    fn waiting_and_review_states_do_not_use_running_timeout() {
+        let mut parser = StateParser::new();
+        for (session_id, state) in [
+            ("waiting", SessionState::WaitingForInput),
+            ("review", SessionState::ReadyForReview),
+        ] {
+            let tracker = parser.trackers.entry(session_id.to_string()).or_default();
+            tracker.state = state;
+            tracker.last_activity_time = Some(Instant::now() - Duration::from_secs(600));
+        }
+
+        assert!(parser.check_timeouts().is_empty());
+    }
+
+    #[test]
+    fn websocket_disconnect_clears_locks_and_active_state() {
+        let mut parser = StateParser::new();
+        parser
+            .process_ws(&WsStateEvent {
+                method: "item/started".to_string(),
+                params: json!({
+                    "threadId": "thread-1",
+                    "item": { "type": "fileChange", "status": "inProgress" }
+                }),
+            })
+            .unwrap();
+
+        let events = parser.process_event(&RawEvent::WsLifecycle {
+            lifecycle: WsLifecycle::Disconnected,
+        });
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].state, SessionState::NotLoaded);
+        assert_eq!(events[0].activity_kind, ActivityKind::None);
+        let tracker = parser.trackers.get("thread-1").unwrap();
+        assert!(!tracker.runtime_locked_to_ws);
+        assert!(!tracker.activity_locked_to_ws);
+
+        let fallback = parser.process_jsonl(&RawJsonlLine {
+            session_id: Some("thread-1".to_string()),
+            ..task_started()
+        });
+        assert_eq!(fallback.unwrap().state, SessionState::Running);
+    }
+
+    #[test]
+    fn running_timeout_returns_to_idle() {
+        let mut parser = StateParser::new();
+        parser
+            .process_jsonl(&jsonl(json!({
+                "type": "agent_message",
+                "phase": "final_answer"
+            })))
+            .unwrap();
+
+        parser
+            .trackers
+            .get_mut("sess-1")
+            .unwrap()
+            .last_activity_time = Some(Instant::now() - Duration::from_secs(5));
         let events = parser.check_timeouts();
 
         assert_eq!(events.len(), 1);

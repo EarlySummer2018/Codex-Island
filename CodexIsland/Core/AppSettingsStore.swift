@@ -74,6 +74,7 @@ enum AppTextKey {
     case agentMessage
     case input
     case cached
+    case cacheRate
     case uncached
     case output
     case total
@@ -184,6 +185,7 @@ final class AppSettingsStore: ObservableObject {
         case .agentMessage: return "生成回复"
         case .input: return "输入"
         case .cached: return "缓存"
+        case .cacheRate: return "缓存率"
         case .uncached: return "未缓存"
         case .output: return "输出"
         case .total: return "总计"
@@ -228,6 +230,7 @@ final class AppSettingsStore: ObservableObject {
         case .agentMessage: return "Generating Reply"
         case .input: return "Input"
         case .cached: return "Cached"
+        case .cacheRate: return "Cache Rate"
         case .uncached: return "Uncached"
         case .output: return "Output"
         case .total: return "Total"

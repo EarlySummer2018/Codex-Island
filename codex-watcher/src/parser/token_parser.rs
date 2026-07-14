@@ -71,6 +71,26 @@ impl TokenParser {
             return None;
         }
 
+        if line.is_replay {
+            let snapshot = Self::snapshot_from_history(
+                &line.session_file,
+                line.session_id.as_deref(),
+                line.parsed.get("payload")?,
+                line.timestamp.unwrap_or_else(Utc::now),
+            )?;
+            self.accumulators.insert(
+                snapshot.session_file.clone(),
+                TokenAccumulator {
+                    input_tokens: snapshot.total_input,
+                    cached_input_tokens: snapshot.total_cached_input,
+                    output_tokens: snapshot.total_output,
+                    reasoning_tokens: snapshot.total_reasoning,
+                },
+            );
+            self.turn_indices.remove(&snapshot.session_file);
+            return Some(snapshot);
+        }
+
         self.process_parsed(&line.session_file, line.session_id.as_deref(), &line.parsed)
     }
 
@@ -324,6 +344,8 @@ mod tests {
             session_id: Some("sess-1".to_string()),
             event_type: "event_msg".to_string(),
             payload_type: Some("token_count".to_string()),
+            timestamp: None,
+            is_replay: false,
             parsed: token_value(input, cached, output, reasoning),
         }
     }
@@ -334,6 +356,8 @@ mod tests {
             session_id: Some("sess-1".to_string()),
             event_type: "event_msg".to_string(),
             payload_type: Some("token_count".to_string()),
+            timestamp: None,
+            is_replay: false,
             parsed: real_codex_token_value(input, cached, output, reasoning),
         }
     }
@@ -346,6 +370,8 @@ mod tests {
             session_id: None,
             event_type: "event_msg".to_string(),
             payload_type: Some("token_count".to_string()),
+            timestamp: None,
+            is_replay: false,
             parsed: token_value(80, 20, 7, 1),
         }
     }
@@ -423,6 +449,8 @@ mod tests {
             session_id: Some("sess-1".to_string()),
             event_type: "event_msg".to_string(),
             payload_type: Some("user_message".to_string()),
+            timestamp: None,
+            is_replay: false,
             parsed: json!({
                 "type": "event_msg",
                 "payload": { "type": "user_message" }

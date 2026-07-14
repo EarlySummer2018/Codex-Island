@@ -3,7 +3,7 @@ pub mod state_parser;
 pub mod token_parser;
 
 use crate::watcher::jsonl_watcher::RawJsonlLine;
-use crate::watcher::ws_client::WsStateEvent;
+use crate::watcher::ws_client::{WsLifecycle, WsStateEvent};
 use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize)]
@@ -11,4 +11,22 @@ use serde::Serialize;
 pub enum RawEvent {
     JsonlLine(RawJsonlLine),
     WsMessage(WsStateEvent),
+    WsLifecycle { lifecycle: WsLifecycle },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RawEvent;
+    use crate::watcher::ws_client::WsLifecycle;
+
+    #[test]
+    fn websocket_lifecycle_serializes_as_internal_raw_event() {
+        let value = serde_json::to_value(RawEvent::WsLifecycle {
+            lifecycle: WsLifecycle::Disconnected,
+        })
+        .unwrap();
+
+        assert_eq!(value["source"], "ws_lifecycle");
+        assert_eq!(value["lifecycle"], "disconnected");
+    }
 }

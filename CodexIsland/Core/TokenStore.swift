@@ -71,6 +71,7 @@ final class TokenStore: ObservableObject {
 
     @Published private(set) var latest: TokenSnapshot?
     @Published private(set) var history: [TokenSnapshot] = []
+    @Published private(set) var globalUsage: GlobalTokenUsageSnapshot?
     @Published private(set) var dailyUsage: DailyTokenUsageSnapshot?
 
     private var historiesBySession: [String: [TokenSnapshot]] = [:]
@@ -82,6 +83,20 @@ final class TokenStore: ObservableObject {
     var totalOutput: Int { latest?.totalOutput ?? 0 }
     var totalTokens: Int { latest?.totalTokens ?? 0 }
     var todayTotalTokens: Int { dailyUsage?.totalTokens ?? 0 }
+    var todayRequestCount: Int { dailyUsage?.requestCount ?? 0 }
+    var globalTotalInput: Int { globalUsage?.totalInput ?? 0 }
+    var globalTotalCachedInput: Int { globalUsage?.totalCachedInput ?? 0 }
+    var globalTotalOutput: Int { globalUsage?.totalOutput ?? 0 }
+    var globalTotalTokens: Int { globalUsage?.totalTokens ?? 0 }
+    var globalCacheHitRate: Double {
+        guard globalTotalInput > 0 else {
+            return 0
+        }
+        return Double(globalTotalCachedInput) / Double(globalTotalInput)
+    }
+    var globalCacheHitPercent: String {
+        String(format: "%.1f%%", globalCacheHitRate * 100)
+    }
     var contextUsedTokens: Int { latest?.contextUsed ?? 0 }
     var contextUsagePercent: String { latest?.contextUsagePercent ?? "0.0%" }
     var cacheHitPercent: String { latest?.cacheHitPercent ?? "0.0%" }
@@ -107,6 +122,10 @@ final class TokenStore: ObservableObject {
         dailyUsage = snapshot
     }
 
+    func update(with snapshot: GlobalTokenUsageSnapshot) {
+        globalUsage = snapshot
+    }
+
     func showSession(_ sessionId: String, latest snapshot: TokenSnapshot?) {
         latest = snapshot ?? historiesBySession[sessionId]?.last
         history = historiesBySession[sessionId] ?? []
@@ -116,6 +135,7 @@ final class TokenStore: ObservableObject {
         latest = nil
         history.removeAll()
         historiesBySession.removeAll()
+        globalUsage = nil
         dailyUsage = nil
     }
 

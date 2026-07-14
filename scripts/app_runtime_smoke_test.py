@@ -119,6 +119,45 @@ def window_y(bounds: str) -> float:
     return float(match.group(1))
 
 
+def capsule_frame(pid: int) -> tuple[float, float, float, float]:
+    script = f'''import CoreGraphics
+let pid: Int32 = {pid}
+let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+for window in windows where (window[kCGWindowOwnerPID as String] as? Int32) == pid {{
+    guard let bounds = window[kCGWindowBounds as String] as? [String: CGFloat],
+          let height = bounds["Height"], height < 100,
+          let x = bounds["X"], let y = bounds["Y"], let width = bounds["Width"] else {{ continue }}
+    print("\\(x),\\(y),\\(width),\\(height)")
+}}'''
+    result = subprocess.run(["swift", "-e", script], capture_output=True, text=True, check=True)
+    lines = [line for line in result.stdout.splitlines() if line.strip()]
+    if len(lines) != 1:
+        raise AssertionError(f"expected one capsule frame for pid {pid}, got: {result.stdout}")
+    values = tuple(float(value) for value in lines[0].split(","))
+    if len(values) != 4:
+        raise AssertionError(f"invalid capsule frame: {lines[0]}")
+    return values
+
+
+def wait_for_capsule_width(pid: int, width: float, timeout: float = 3.0) -> tuple[float, float, float, float]:
+    deadline = time.time() + timeout
+    last_frame: tuple[float, float, float, float] | None = None
+    while time.time() < deadline:
+        try:
+            last_frame = capsule_frame(pid)
+        except AssertionError:
+            time.sleep(0.05)
+            continue
+        if abs(last_frame[2] - width) <= 0.5:
+            return last_frame
+        time.sleep(0.05)
+    raise AssertionError(f"capsule did not reach width {width}: {last_frame}")
+
+
+def frame_mid_x(frame: tuple[float, float, float, float]) -> float:
+    return frame[0] + frame[2] / 2
+
+
 def no_codex_island_processes() -> bool:
     result = subprocess.run(
         ["pgrep", "-fl", "CodexIsland|codex-watcher"],
@@ -173,6 +212,9 @@ def main() -> int:
                 raise AssertionError(f"CodexIsland window not visible: {bounds}")
             if window_y(bounds) < 6:
                 raise AssertionError(f"CodexIsland window is still too close to the screen top: {bounds}")
+            resting_frame = capsule_frame(process.pid)
+            configured_width = resting_frame[2]
+            fixed_mid_x = frame_mid_x(resting_frame)
 
             session_dir = sessions / "2026" / "06" / "28"
             session_dir.mkdir(parents=True)
@@ -188,6 +230,9 @@ def main() -> int:
                 lambda seen: count_runtime_activity(seen, "running", "reasoning") >= 1,
                 "running reasoning",
             )
+            running_frame = wait_for_capsule_width(process.pid, configured_width)
+            if abs(frame_mid_x(running_frame) - fixed_mid_x) > 1:
+                raise AssertionError(f"running frame moved center: {resting_frame} -> {running_frame}")
 
             append_jsonl(
                 rollout,
@@ -199,9 +244,21 @@ def main() -> int:
             wait_for_log(
                 lines,
                 output,
-                lambda seen: count_runtime_activity(seen, "running", "agent_message") >= 1
-                and token_line_seen(seen, 120, 40, 12),
-                "running reply and first token snapshot",
+                lambda seen: token_line_seen(seen, 120, 40, 12),
+                "first token snapshot",
+            )
+            append_jsonl(
+                rollout,
+                {
+                    "type": "event_msg",
+                    "payload": {"type": "agent_message", "phase": "final_answer"},
+                },
+            )
+            wait_for_log(
+                lines,
+                output,
+                lambda seen: count_runtime_activity(seen, "running", "agent_message") >= 1,
+                "final answer activity",
             )
             idle_count_before_stream_timeout = count_runtime(lines, "idle")
             wait_for_log(
@@ -211,6 +268,9 @@ def main() -> int:
                 "stream timeout to idle",
                 timeout=6.0,
             )
+            idle_frame = wait_for_capsule_width(process.pid, configured_width)
+            if abs(frame_mid_x(idle_frame) - fixed_mid_x) > 1:
+                raise AssertionError(f"idle frame moved center: {idle_frame}")
 
             append_jsonl(rollout, {"type": "event_msg", "payload": {"type": "user_message"}})
             wait_for_log(
@@ -255,9 +315,9 @@ def main() -> int:
             wait_for_log(
                 lines,
                 output,
-                lambda seen: count_runtime_activity(seen, "running", "agent_message") >= 2
+                lambda seen: count_runtime_activity(seen, "running", "command_execution") >= 1
                 and token_line_seen(seen, 220, 120, 30),
-                "second running reply and token snapshot",
+                "running command and second token snapshot",
             )
 
             append_jsonl(rollout, {"type": "event_msg", "payload": {"type": "assistant_message_stop"}})
@@ -288,6 +348,35 @@ def main() -> int:
             append_jsonl(rollout, {"type": "event_msg", "payload": {"type": "tool_approval", "approved": False}})
             wait_for_log(lines, output, lambda seen: count_runtime(seen, "idle") >= 4, "denied approval to idle")
 
+            for cycle in range(10):
+                running_before = count_runtime(lines, "running")
+                append_jsonl(rollout, {"type": "event_msg", "payload": {"type": "user_message"}})
+                wait_for_log(
+                    lines,
+                    output,
+                    lambda seen, count=running_before: count_runtime(seen, "running") > count,
+                    f"cycle {cycle + 1} running",
+                )
+                cycle_running_frame = wait_for_capsule_width(process.pid, configured_width)
+                if abs(frame_mid_x(cycle_running_frame) - fixed_mid_x) > 1:
+                    raise AssertionError(
+                        f"cycle {cycle + 1} running center moved: {cycle_running_frame}"
+                    )
+
+                idle_before = count_runtime(lines, "idle")
+                append_jsonl(rollout, {"type": "event_msg", "payload": {"type": "task_complete"}})
+                wait_for_log(
+                    lines,
+                    output,
+                    lambda seen, count=idle_before: count_runtime(seen, "idle") > count,
+                    f"cycle {cycle + 1} idle",
+                )
+                cycle_idle_frame = wait_for_capsule_width(process.pid, configured_width)
+                if abs(frame_mid_x(cycle_idle_frame) - fixed_mid_x) > 1:
+                    raise AssertionError(
+                        f"cycle {cycle + 1} idle center moved: {cycle_idle_frame}"
+                    )
+
             subprocess.run(["osascript", "-e", 'tell application "CodexIsland" to quit'], check=False)
             try:
                 process.wait(timeout=5)
@@ -301,6 +390,10 @@ def main() -> int:
 
             print("App runtime smoke test passed")
             print(f"Window bounds: {bounds}")
+            print(
+                f"Capsule fixed frame: width={configured_width:.1f}, "
+                f"midX={fixed_mid_x:.1f} (10 idle/running cycles)"
+            )
             print(
                 "Runtime states: "
                 f"running={count_runtime(lines, 'running')}, "

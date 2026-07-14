@@ -15,6 +15,7 @@ final class SidecarBridge {
     private var process: Process?
     private var shouldRun = false
     private var isConnecting = false
+    private var hasEstablishedConnection = false
 
     private init() {}
 
@@ -117,7 +118,9 @@ final class SidecarBridge {
                 do {
                     let handle = try UnixSocket.connect(path: self.socketPath)
                     print("Connected to codex-watcher IPC: \(self.socketPath)")
+                    self.hasEstablishedConnection = true
                     self.readLines(from: handle)
+                    self.notifyRuntimeDisconnectedIfNeeded()
                 } catch {
                     Thread.sleep(forTimeInterval: 0.35)
                 }
@@ -156,6 +159,17 @@ final class SidecarBridge {
         try? handle.close()
     }
 
+    private func notifyRuntimeDisconnectedIfNeeded() {
+        guard hasEstablishedConnection else {
+            return
+        }
+
+        hasEstablishedConnection = false
+        Task { @MainActor in
+            EventBus.shared.handleRuntimeDisconnected()
+        }
+    }
+
     private func handleIpcLine(_ line: String) {
         switch decoder.decode(line: line) {
         case .state(let event):
@@ -168,6 +182,7 @@ final class SidecarBridge {
             }
         case .globalToken(let snapshot):
             Task { @MainActor in
+                TokenStore.shared.update(with: snapshot)
                 PetEvolutionStore.shared.update(with: snapshot)
             }
         case .dailyToken(let snapshot):

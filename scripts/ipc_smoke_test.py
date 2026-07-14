@@ -97,6 +97,10 @@ def global_token_messages(messages: list[dict]) -> list[dict]:
     return [message for message in messages if message.get("type") == "global_token_usage"]
 
 
+def daily_token_messages(messages: list[dict]) -> list[dict]:
+    return [message for message in messages if message.get("type") == "daily_token_usage"]
+
+
 def state_count(messages: list[dict], state: str) -> int:
     return states(messages).count(state)
 
@@ -190,13 +194,33 @@ def main() -> int:
             wait_for(
                 client,
                 messages,
-                lambda received: has_state_activity(received, "running", "agent_message")
+                lambda received: has_state_activity(received, "running", "reasoning")
                 and any(message.get("total_output") == 12 for message in received)
                 and any(
                     message.get("total_tokens") == 132
                     and message.get("session_count") == 1
                     for message in global_token_messages(received)
+                )
+                and any(
+                    message.get("total_tokens") == 132
+                    and message.get("request_count") == 1
+                    for message in daily_token_messages(received)
                 ),
+            )
+            append_jsonl(
+                rollout,
+                {
+                    "type": "event_msg",
+                    "payload": {
+                        "type": "agent_message",
+                        "phase": "final_answer",
+                    },
+                },
+            )
+            wait_for(
+                client,
+                messages,
+                lambda received: has_state_activity(received, "running", "agent_message"),
             )
             wait_for(client, messages, lambda received: "idle" in states(received), timeout=9.0)
 
@@ -230,7 +254,15 @@ def main() -> int:
                     },
                 },
             )
-            wait_for(client, messages, lambda received: state_count(received, "running") >= 2)
+            wait_for(
+                client,
+                messages,
+                lambda received: has_state_activity(
+                    received,
+                    "running",
+                    "command_execution",
+                ),
+            )
 
             append_jsonl(
                 rollout,
@@ -242,7 +274,7 @@ def main() -> int:
             wait_for(
                 client,
                 messages,
-                lambda received: state_count(received, "running") >= 3
+                lambda received: has_state_activity(received, "running", "command_execution")
                 and any(
                     message.get("total_input") == 220
                     and message.get("total_cached_input") == 120
@@ -258,6 +290,11 @@ def main() -> int:
                     and message.get("total_tokens") == 250
                     and message.get("session_count") == 1
                     for message in global_token_messages(received)
+                )
+                and any(
+                    message.get("total_tokens") == 250
+                    and message.get("request_count") == 2
+                    for message in daily_token_messages(received)
                 ),
             )
 
@@ -344,7 +381,7 @@ def main() -> int:
                 lambda received: any(
                     message.get("session_id") == fallback_session_id
                     and message.get("state") == "running"
-                    and message.get("activity_kind") == "agent_message"
+                    and message.get("activity_kind") == "reasoning"
                     for message in received
                 )
                 and any(
@@ -381,6 +418,78 @@ def main() -> int:
                 and any(message.get("state") == "running" for message in received),
             )
             replay_client.close()
+
+            append_jsonl(
+                fallback_rollout,
+                {
+                    "type": "event_msg",
+                    "payload": {
+                        "type": "patch_apply_end",
+                        "success": True,
+                        "status": "completed",
+                    },
+                },
+            )
+            append_jsonl(
+                fallback_rollout,
+                {
+                    "type": "event_msg",
+                    "payload": {
+                        "type": "turn_aborted",
+                        "turn_id": "smoke-turn",
+                        "reason": "interrupted",
+                        "message": "private abort details",
+                    },
+                },
+            )
+            wait_for(
+                client,
+                messages,
+                lambda received: any(
+                    message.get("session_id") == fallback_session_id
+                    and message.get("state") == "idle"
+                    and message.get("activity_kind") == "none"
+                    and message.get("turn_state") == "interrupted"
+                    for message in received
+                ),
+            )
+
+            append_jsonl(
+                fallback_rollout,
+                {
+                    "type": "event_msg",
+                    "payload": token_count_payload(90, 20, 8, 1),
+                },
+            )
+            wait_for(
+                client,
+                messages,
+                lambda received: any(
+                    message.get("session_id") == fallback_session_id
+                    and message.get("total_output") == 8
+                    for message in received
+                ),
+            )
+
+            terminal_replay_client = connect_socket(socket_path)
+            terminal_replay_messages: list[dict] = []
+            wait_for(
+                terminal_replay_client,
+                terminal_replay_messages,
+                lambda received: any(
+                    message.get("session_id") == fallback_session_id
+                    and message.get("state") == "idle"
+                    and message.get("turn_state") == "interrupted"
+                    for message in received
+                ),
+            )
+            if any(
+                message.get("session_id") == fallback_session_id
+                and message.get("state") == "running"
+                for message in terminal_replay_messages
+            ):
+                raise AssertionError("terminal replay retained stale running state")
+            terminal_replay_client.close()
 
             if not any(message.get("state") == "waiting_for_input" for message in messages):
                 raise AssertionError("waiting_for_input state missing")

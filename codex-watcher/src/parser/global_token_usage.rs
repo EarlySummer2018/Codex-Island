@@ -7,7 +7,10 @@ use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+const LEDGER_VERSION: u32 = 1;
+const LEDGER_FILE_NAME: &str = "codex-island-token-ledger-v1.json";
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 struct SessionTotals {
     input: u64,
     cached_input: u64,
@@ -31,6 +34,21 @@ impl SessionTotals {
             output: self.output.saturating_sub(baseline.output),
             reasoning: self.reasoning.saturating_sub(baseline.reasoning),
         }
+    }
+
+    fn delta_from(&self, previous: &SessionTotals) -> SessionTotals {
+        if self.total_tokens() < previous.total_tokens() {
+            return self.clone();
+        }
+
+        self.saturating_sub(previous)
+    }
+
+    fn add_assign(&mut self, other: &SessionTotals) {
+        self.input = self.input.saturating_add(other.input);
+        self.cached_input = self.cached_input.saturating_add(other.cached_input);
+        self.output = self.output.saturating_add(other.output);
+        self.reasoning = self.reasoning.saturating_add(other.reasoning);
     }
 }
 
@@ -58,7 +76,23 @@ pub struct DailyTokenUsageSnapshot {
     pub total_reasoning: u64,
     pub total_tokens: u64,
     pub session_count: usize,
+    pub request_count: u64,
     pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct PersistedTokenLedger {
+    version: u32,
+    global_sessions: HashMap<String, SessionTotals>,
+    daily_date: String,
+    daily_sessions: HashMap<String, SessionTotals>,
+    daily_request_counts: HashMap<String, u64>,
+}
+
+#[derive(Debug, Clone)]
+struct FileRuntimeState {
+    session_id: String,
+    last_totals: SessionTotals,
 }
 
 #[derive(Debug)]
@@ -70,32 +104,77 @@ pub struct TokenUsageAggregators {
     /// the initial publish still receive a current per-session token frame from the
     /// replay cache, instead of seeing all zeros until the next live codex turn.
     pub latest_snapshots: Vec<TokenSnapshot>,
+    file_states: HashMap<String, FileRuntimeState>,
+    ledger_path: Option<PathBuf>,
+    dirty: bool,
 }
 
 impl TokenUsageAggregators {
     pub fn load_from_sessions_dir(sessions_dir: impl AsRef<Path>) -> Self {
-        Self::load_from_sessions_dir_for_date(sessions_dir, Local::now().date_naive())
+        let sessions_dir = sessions_dir.as_ref();
+        let ledger_path = sessions_dir
+            .parent()
+            .unwrap_or(sessions_dir)
+            .join(LEDGER_FILE_NAME);
+        Self::load_from_sessions_dir_for_date_and_ledger(
+            sessions_dir,
+            Local::now().date_naive(),
+            Some(ledger_path),
+        )
     }
 
+    #[cfg(test)]
     fn load_from_sessions_dir_for_date(
         sessions_dir: impl AsRef<Path>,
         local_date: NaiveDate,
     ) -> Self {
-        let mut global = GlobalTokenAggregator::default();
+        Self::load_from_sessions_dir_for_date_and_ledger(sessions_dir, local_date, None)
+    }
+
+    fn load_from_sessions_dir_for_date_and_ledger(
+        sessions_dir: impl AsRef<Path>,
+        local_date: NaiveDate,
+        ledger_path: Option<PathBuf>,
+    ) -> Self {
+        let persisted = ledger_path
+            .as_deref()
+            .and_then(load_persisted_ledger)
+            .unwrap_or_default();
+        let local_date_string = local_date.format("%Y-%m-%d").to_string();
+        let mut global = GlobalTokenAggregator {
+            sessions: persisted.global_sessions,
+        };
         let mut daily = DailyTokenAggregator::new(local_date);
+        if persisted.daily_date == local_date_string {
+            daily.sessions = persisted.daily_sessions;
+            daily.request_counts = persisted.daily_request_counts;
+        }
         let mut latest_snapshots = Vec::new();
+        let mut file_states = HashMap::new();
 
-        for path in collect_jsonl_files(sessions_dir.as_ref()) {
+        let mut session_files = collect_jsonl_files(sessions_dir.as_ref());
+        if ledger_path.is_some() {
+            if let Some(codex_home) = sessions_dir.as_ref().parent() {
+                session_files.extend(collect_jsonl_files(&codex_home.join("archived_sessions")));
+            }
+        }
+
+        for path in session_files {
             if let Some(scan) = scan_token_file(&path, local_date) {
-                global.merge_session(scan.session_id.clone(), scan.latest_totals);
+                file_states.insert(
+                    path.to_string_lossy().to_string(),
+                    FileRuntimeState {
+                        session_id: scan.session_id.clone(),
+                        last_totals: scan.latest_totals.clone(),
+                    },
+                );
 
-                if let Some(latest_today) = scan.latest_today_totals {
-                    daily.merge_session(
-                        scan.session_id.clone(),
-                        latest_today.saturating_sub(&scan.daily_baseline),
-                        scan.daily_baseline,
-                    );
-                }
+                global.merge_session(scan.session_id.clone(), scan.lifetime_totals);
+                daily.merge_session(
+                    scan.session_id.clone(),
+                    scan.daily_totals,
+                    scan.daily_request_count,
+                );
 
                 if let Some(payload) = scan.latest_token_payload {
                     let timestamp = scan.latest_token_timestamp.unwrap_or_else(Utc::now);
@@ -115,6 +194,9 @@ impl TokenUsageAggregators {
             global,
             daily,
             latest_snapshots,
+            file_states,
+            ledger_path,
+            dirty: true,
         }
     }
 
@@ -125,11 +207,103 @@ impl TokenUsageAggregators {
         Option<GlobalTokenUsageSnapshot>,
         Option<DailyTokenUsageSnapshot>,
     ) {
-        (
-            self.global.update_from_snapshot(snapshot),
-            self.daily.update_from_snapshot(snapshot),
-        )
+        let file_key = snapshot.session_file.clone();
+        if !self.file_states.contains_key(&file_key) {
+            if let Some(scan) = scan_token_file(
+                Path::new(&snapshot.session_file),
+                snapshot.timestamp.with_timezone(&Local).date_naive(),
+            ) {
+                self.file_states.insert(
+                    file_key.clone(),
+                    FileRuntimeState {
+                        session_id: scan.session_id.clone(),
+                        last_totals: scan.latest_totals,
+                    },
+                );
+                self.global
+                    .merge_session(scan.session_id.clone(), scan.lifetime_totals);
+                self.daily.merge_session(
+                    scan.session_id,
+                    scan.daily_totals,
+                    scan.daily_request_count,
+                );
+                self.dirty = true;
+                return (Some(self.global.snapshot()), Some(self.daily.snapshot()));
+            }
+            return (None, None);
+        }
+
+        if snapshot.turn_index == 0 {
+            return (None, None);
+        }
+
+        let current = SessionTotals::from_snapshot(snapshot);
+        let state = self
+            .file_states
+            .get_mut(&file_key)
+            .expect("file state exists");
+        let delta = current.delta_from(&state.last_totals);
+        state.last_totals = current;
+
+        if delta.is_zero() {
+            return (None, None);
+        }
+
+        let session_id = state.session_id.clone();
+        self.global.add_delta(&session_id, &delta);
+        self.daily.add_delta(
+            &session_id,
+            &delta,
+            snapshot.timestamp.with_timezone(&Local).date_naive(),
+        );
+        self.dirty = true;
+
+        (Some(self.global.snapshot()), Some(self.daily.snapshot()))
     }
+
+    pub fn flush_if_dirty(&mut self) -> std::io::Result<()> {
+        if !self.dirty {
+            return Ok(());
+        }
+        let Some(path) = &self.ledger_path else {
+            self.dirty = false;
+            return Ok(());
+        };
+
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let persisted = PersistedTokenLedger {
+            version: LEDGER_VERSION,
+            global_sessions: self.global.sessions.clone(),
+            daily_date: self.daily.local_date.format("%Y-%m-%d").to_string(),
+            daily_sessions: self.daily.sessions.clone(),
+            daily_request_counts: self.daily.request_counts.clone(),
+        };
+        let bytes = serde_json::to_vec(&persisted).map_err(std::io::Error::other)?;
+        let temp_path = path.with_extension(format!("tmp-{}", std::process::id()));
+        std::fs::write(&temp_path, bytes)?;
+        std::fs::rename(temp_path, path)?;
+        self.dirty = false;
+        Ok(())
+    }
+}
+
+impl SessionTotals {
+    fn from_snapshot(snapshot: &TokenSnapshot) -> Self {
+        Self {
+            input: snapshot.total_input,
+            cached_input: snapshot.total_cached_input,
+            output: snapshot.total_output,
+            reasoning: snapshot.total_reasoning,
+        }
+    }
+}
+
+fn load_persisted_ledger(path: &Path) -> Option<PersistedTokenLedger> {
+    let data = std::fs::read(path).ok()?;
+    let ledger: PersistedTokenLedger = serde_json::from_slice(&data).ok()?;
+    (ledger.version == LEDGER_VERSION).then_some(ledger)
 }
 
 #[derive(Debug, Default)]
@@ -144,13 +318,14 @@ impl GlobalTokenAggregator {
 
         for path in collect_jsonl_files(sessions_dir.as_ref()) {
             if let Some(scan) = scan_token_file(&path, Local::now().date_naive()) {
-                aggregator.merge_session(scan.session_id, scan.latest_totals);
+                aggregator.merge_session(scan.session_id, scan.lifetime_totals);
             }
         }
 
         aggregator
     }
 
+    #[cfg(test)]
     pub fn update_from_snapshot(
         &mut self,
         snapshot: &TokenSnapshot,
@@ -168,6 +343,13 @@ impl GlobalTokenAggregator {
 
         self.sessions.insert(snapshot.session_id.clone(), totals);
         Some(self.snapshot())
+    }
+
+    fn add_delta(&mut self, session_id: &str, delta: &SessionTotals) {
+        self.sessions
+            .entry(session_id.to_string())
+            .or_default()
+            .add_assign(delta);
     }
 
     pub fn snapshot(&self) -> GlobalTokenUsageSnapshot {
@@ -213,7 +395,7 @@ impl GlobalTokenAggregator {
 pub struct DailyTokenAggregator {
     local_date: NaiveDate,
     sessions: HashMap<String, SessionTotals>,
-    baselines: HashMap<String, SessionTotals>,
+    request_counts: HashMap<String, u64>,
 }
 
 impl Default for DailyTokenAggregator {
@@ -227,10 +409,11 @@ impl DailyTokenAggregator {
         Self {
             local_date,
             sessions: HashMap::new(),
-            baselines: HashMap::new(),
+            request_counts: HashMap::new(),
         }
     }
 
+    #[cfg(test)]
     pub fn update_from_snapshot(
         &mut self,
         snapshot: &TokenSnapshot,
@@ -243,41 +426,41 @@ impl DailyTokenAggregator {
         if snapshot_date > self.local_date {
             self.local_date = snapshot_date;
             self.sessions.clear();
-            self.baselines.clear();
+            self.request_counts.clear();
         }
 
-        let current = SessionTotals {
-            input: snapshot.total_input,
-            cached_input: snapshot.total_cached_input,
-            output: snapshot.total_output,
-            reasoning: snapshot.total_reasoning,
+        let delta = SessionTotals {
+            input: snapshot.delta_input,
+            cached_input: snapshot.delta_cached_input,
+            output: snapshot.delta_output,
+            reasoning: snapshot.delta_reasoning,
         };
 
-        if current.is_zero() {
+        if delta.is_zero() {
             return None;
         }
+        self.add_delta(&snapshot.session_id, &delta, snapshot_date);
+        Some(self.snapshot())
+    }
 
-        let baseline = self
-            .baselines
-            .entry(snapshot.session_id.clone())
-            .or_insert_with(|| {
-                current.saturating_sub(&SessionTotals {
-                    input: snapshot.delta_input,
-                    cached_input: snapshot.delta_cached_input,
-                    output: snapshot.delta_output,
-                    reasoning: snapshot.delta_reasoning,
-                })
-            })
-            .clone();
-        let daily_totals = current.saturating_sub(&baseline);
-
-        if daily_totals.is_zero() {
-            return None;
+    fn add_delta(&mut self, session_id: &str, delta: &SessionTotals, date: NaiveDate) {
+        if date > self.local_date {
+            self.local_date = date;
+            self.sessions.clear();
+            self.request_counts.clear();
+        }
+        if date != self.local_date || delta.is_zero() {
+            return;
         }
 
         self.sessions
-            .insert(snapshot.session_id.clone(), daily_totals);
-        Some(self.snapshot())
+            .entry(session_id.to_string())
+            .or_default()
+            .add_assign(delta);
+        *self
+            .request_counts
+            .entry(session_id.to_string())
+            .or_default() += 1;
     }
 
     pub fn snapshot(&self) -> DailyTokenUsageSnapshot {
@@ -302,6 +485,7 @@ impl DailyTokenAggregator {
             total_reasoning,
             total_tokens: total_input + total_output,
             session_count: self.sessions.len(),
+            request_count: self.request_counts.values().sum(),
             updated_at: Utc::now(),
         }
     }
@@ -310,17 +494,8 @@ impl DailyTokenAggregator {
         &mut self,
         session_id: String,
         daily_totals: SessionTotals,
-        baseline: SessionTotals,
+        request_count: u64,
     ) {
-        self.baselines
-            .entry(session_id.clone())
-            .and_modify(|existing| {
-                if existing.total_tokens() < baseline.total_tokens() {
-                    *existing = baseline.clone();
-                }
-            })
-            .or_insert(baseline);
-
         if daily_totals.is_zero() {
             return;
         }
@@ -328,18 +503,23 @@ impl DailyTokenAggregator {
         match self.sessions.get(&session_id) {
             Some(existing) if existing.total_tokens() > daily_totals.total_tokens() => {}
             _ => {
-                self.sessions.insert(session_id, daily_totals);
+                self.sessions.insert(session_id.clone(), daily_totals);
             }
         }
+        self.request_counts
+            .entry(session_id)
+            .and_modify(|existing| *existing = (*existing).max(request_count))
+            .or_insert(request_count);
     }
 }
 
 #[derive(Debug)]
 struct FileTokenScan {
     session_id: String,
+    lifetime_totals: SessionTotals,
+    daily_totals: SessionTotals,
+    daily_request_count: u64,
     latest_totals: SessionTotals,
-    daily_baseline: SessionTotals,
-    latest_today_totals: Option<SessionTotals>,
     /// Last `token_count` payload observed in the file, used to rebuild the session's
     /// latest `TokenSnapshot` for startup replay.
     latest_token_payload: Option<Value>,
@@ -354,21 +534,28 @@ fn scan_token_file(path: &Path, local_date: NaiveDate) -> Option<FileTokenScan> 
     let reader = BufReader::new(file);
     let fallback_date = file_modified_local_date(path);
     let fallback_timestamp = file_modified_utc(path);
+    let replay_boundary = history_replay_boundary(path);
 
     let mut session_id = session_id_from_path(path);
+    let mut identity_resolved = false;
     let mut latest_totals = None;
-    let mut daily_baseline = SessionTotals::default();
-    let mut latest_today_totals = None;
+    let mut previous_totals = SessionTotals::default();
+    let mut lifetime_totals = SessionTotals::default();
+    let mut daily_totals = SessionTotals::default();
+    let mut daily_request_count = 0;
     let mut latest_token_payload: Option<Value> = None;
     let mut latest_token_timestamp: Option<DateTime<Utc>> = None;
 
-    for line in reader.lines().map_while(Result::ok) {
+    for (line_index, line) in reader.lines().map_while(Result::ok).enumerate() {
         let Ok(parsed) = serde_json::from_str::<Value>(&line) else {
             continue;
         };
 
-        if let Some(extracted_session_id) = extract_session_id(&parsed) {
-            session_id = Some(extracted_session_id);
+        if !identity_resolved {
+            if let Some(extracted_session_id) = extract_session_id(&parsed) {
+                session_id = Some(extracted_session_id);
+                identity_resolved = true;
+            }
         }
 
         let Some(payload) = parsed.get("payload") else {
@@ -386,6 +573,8 @@ fn scan_token_file(path: &Path, local_date: NaiveDate) -> Option<FileTokenScan> 
             output: token_count_value(payload, "output_tokens").unwrap_or(0),
             reasoning: token_count_value(payload, "reasoning_tokens").unwrap_or(0),
         };
+        let delta = totals.delta_from(&previous_totals);
+        previous_totals = totals.clone();
 
         if !totals.is_zero() {
             latest_totals = Some(totals.clone());
@@ -404,23 +593,90 @@ fn scan_token_file(path: &Path, local_date: NaiveDate) -> Option<FileTokenScan> 
             .and_then(local_date_from_timestamp)
             .or(fallback_date);
 
-        if let Some(event_date) = event_date {
-            if event_date < local_date {
-                daily_baseline = totals;
-            } else if event_date == local_date {
-                latest_today_totals = Some(totals);
+        let line_number = line_index + 1;
+        let is_history_snapshot = replay_boundary
+            .map(|boundary| line_number < boundary)
+            .unwrap_or(false);
+        if let Some(event_date) = event_date.filter(|_| !is_history_snapshot) {
+            lifetime_totals.add_assign(&delta);
+            if event_date == local_date && !delta.is_zero() {
+                daily_totals.add_assign(&delta);
+                daily_request_count += 1;
             }
         }
     }
 
     Some(FileTokenScan {
         session_id: session_id?,
+        lifetime_totals,
+        daily_totals,
+        daily_request_count,
         latest_totals: latest_totals?,
-        daily_baseline,
-        latest_today_totals,
         latest_token_payload,
         latest_token_timestamp,
     })
+}
+
+fn history_replay_boundary(path: &Path) -> Option<usize> {
+    let file = std::fs::File::open(path).ok()?;
+    let mut is_subagent = false;
+    let mut metadata_classified = false;
+    let mut first_inter_agent = None;
+    let mut last_thread_settings = None;
+
+    for (line_index, line) in BufReader::new(file)
+        .lines()
+        .map_while(Result::ok)
+        .enumerate()
+    {
+        let Ok(parsed) = serde_json::from_str::<Value>(&line) else {
+            continue;
+        };
+        if !metadata_classified
+            && parsed.get("type").and_then(Value::as_str) == Some("session_meta")
+        {
+            is_subagent = is_subagent_metadata(&parsed);
+            metadata_classified = true;
+        }
+        if parsed
+            .get("type")
+            .and_then(Value::as_str)
+            .is_some_and(|event_type| event_type.starts_with("inter_agent_communication"))
+            && first_inter_agent.is_none()
+        {
+            first_inter_agent = Some(line_index + 1);
+        }
+        if parsed.get("type").and_then(Value::as_str) == Some("event_msg")
+            && parsed
+                .get("payload")
+                .and_then(|payload| payload.get("type"))
+                .and_then(Value::as_str)
+                == Some("thread_settings_applied")
+        {
+            last_thread_settings = Some(line_index + 1);
+        }
+    }
+
+    is_subagent
+        .then_some(first_inter_agent.or(last_thread_settings))
+        .flatten()
+}
+
+fn is_subagent_metadata(parsed: &Value) -> bool {
+    let payload = parsed.get("payload").unwrap_or(&Value::Null);
+    payload
+        .get("forked_from_id")
+        .and_then(Value::as_str)
+        .is_some()
+        || payload
+            .get("parent_thread_id")
+            .and_then(Value::as_str)
+            .is_some()
+        || payload.get("thread_source").and_then(Value::as_str) == Some("subagent")
+        || payload
+            .get("source")
+            .and_then(|source| source.get("subagent"))
+            .is_some()
 }
 
 fn collect_jsonl_files(root: &Path) -> Vec<PathBuf> {
@@ -618,6 +874,114 @@ mod tests {
         assert_eq!(daily.total_cached_input, 130);
         assert_eq!(daily.total_output, 45);
         assert_eq!(daily.total_tokens, 295);
+        assert_eq!(daily.request_count, 2);
+    }
+
+    #[test]
+    fn subagent_counts_own_usage_without_replaying_parent_history() {
+        let root = temp_dir("subagent-history");
+        let day = root.join("2026/06/28");
+        fs::create_dir_all(&day).unwrap();
+
+        write_jsonl_lines(
+            &day.join("rollout-2026-06-28T10-00-00-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa.jsonl"),
+            &[
+                json!({"type": "session_meta", "payload": {"id": "root-session", "thread_source": "user"}}),
+                token_count_at(100, 40, 10, 1, "2026-06-28T08:00:00Z"),
+            ],
+        );
+        write_jsonl_lines(
+            &day.join("rollout-2026-06-28T10-01-00-bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb.jsonl"),
+            &[
+                json!({"type": "session_meta", "payload": {
+                    "id": "child-session",
+                    "forked_from_id": "root-session",
+                    "thread_source": "subagent"
+                }}),
+                json!({"type": "session_meta", "payload": {"id": "root-session", "thread_source": "user"}}),
+                token_count_at(100, 40, 10, 1, "2026-06-28T08:01:00Z"),
+                json!({"type": "inter_agent_communication_metadata", "payload": {}}),
+                token_count_at(180, 90, 25, 2, "2026-06-28T08:02:00Z"),
+            ],
+        );
+
+        let aggregators = TokenUsageAggregators::load_from_sessions_dir_for_date(
+            &root,
+            NaiveDate::from_ymd_opt(2026, 6, 28).unwrap(),
+        );
+        let global = aggregators.global.snapshot();
+        let daily = aggregators.daily.snapshot();
+        let _ = fs::remove_dir_all(&root);
+
+        assert_eq!(global.session_count, 2);
+        assert_eq!(global.total_tokens, 205);
+        assert_eq!(daily.session_count, 2);
+        assert_eq!(daily.total_tokens, 205);
+        assert_eq!(daily.request_count, 2);
+        let child = aggregators
+            .latest_snapshots
+            .iter()
+            .find(|snapshot| snapshot.session_id == "child-session")
+            .expect("subagent remains available for active-session display");
+        assert_eq!(child.total_input + child.total_output, 205);
+    }
+
+    #[test]
+    fn daily_request_count_ignores_duplicate_cumulative_frames() {
+        let root = temp_dir("daily-request-count");
+        let day = root.join("2026/06/28");
+        fs::create_dir_all(&day).unwrap();
+        write_jsonl_lines(
+            &day.join("rollout-2026-06-28T10-00-00-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa.jsonl"),
+            &[
+                json!({"type": "session_meta", "payload": {"id": "session-a"}}),
+                token_count_at(100, 40, 10, 1, "2026-06-28T08:00:00Z"),
+                token_count_at(100, 40, 10, 1, "2026-06-28T08:00:01Z"),
+                token_count_at(150, 70, 25, 2, "2026-06-28T08:00:02Z"),
+            ],
+        );
+
+        let daily = TokenUsageAggregators::load_from_sessions_dir_for_date(
+            &root,
+            NaiveDate::from_ymd_opt(2026, 6, 28).unwrap(),
+        )
+        .daily
+        .snapshot();
+        let _ = fs::remove_dir_all(&root);
+
+        assert_eq!(daily.total_tokens, 175);
+        assert_eq!(daily.request_count, 2);
+    }
+
+    #[test]
+    fn persisted_ledger_survives_session_file_deletion() {
+        let root = temp_dir("persisted-deletion");
+        let sessions = root.join("sessions/2026/06/28");
+        fs::create_dir_all(&sessions).unwrap();
+        let session_file =
+            sessions.join("rollout-2026-06-28T10-00-00-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa.jsonl");
+        write_jsonl_lines(
+            &session_file,
+            &[
+                json!({"type": "session_meta", "payload": {"id": "session-a"}}),
+                token_count(150, 70, 25, 2),
+            ],
+        );
+
+        let sessions_root = root.join("sessions");
+        let mut first = TokenUsageAggregators::load_from_sessions_dir(&sessions_root);
+        assert_eq!(first.global.snapshot().total_tokens, 175);
+        first.flush_if_dirty().unwrap();
+
+        fs::remove_file(session_file).unwrap();
+        let second = TokenUsageAggregators::load_from_sessions_dir(&sessions_root);
+
+        assert_eq!(second.global.snapshot().total_input, 150);
+        assert_eq!(second.global.snapshot().total_cached_input, 70);
+        assert_eq!(second.global.snapshot().total_output, 25);
+        assert_eq!(second.global.snapshot().total_tokens, 175);
+        assert_eq!(second.global.snapshot().session_count, 1);
+        let _ = fs::remove_dir_all(&root);
     }
 
     #[test]
@@ -818,6 +1182,7 @@ mod tests {
         value
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn snapshot_at(
         session_id: &str,
         input: u64,

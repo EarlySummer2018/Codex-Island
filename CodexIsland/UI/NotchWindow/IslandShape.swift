@@ -13,15 +13,6 @@ enum IslandShape: Equatable {
     static let capsuleCornerRadius: CGFloat = fallbackCompactSize.height / 2
     static let expandedCornerRadius: CGFloat = 28
 
-    static func resting(for state: CodexSessionState) -> IslandShape {
-        switch state {
-        case .notLoaded, .idle, .error:
-            return .compact
-        case .running, .waitingForInput, .readyForReview:
-            return .pill
-        }
-    }
-
     func size(
         fitting notchFrame: CGRect,
         capsuleStyle: CapsuleDisplayStyle = .large,

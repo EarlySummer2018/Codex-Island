@@ -47,13 +47,26 @@ pub struct WsStateEvent {
     pub params: Value,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum WsLifecycle {
+    Connected,
+    Disconnected,
+}
+
+#[derive(Debug, Clone)]
+pub enum WsClientEvent {
+    State(WsStateEvent),
+    Lifecycle(WsLifecycle),
+}
+
 pub struct WsClient {
     config: WsConfig,
-    tx: mpsc::Sender<WsStateEvent>,
+    tx: mpsc::Sender<WsClientEvent>,
 }
 
 impl WsClient {
-    pub fn new(config: WsConfig, tx: mpsc::Sender<WsStateEvent>) -> Self {
+    pub fn new(config: WsConfig, tx: mpsc::Sender<WsClientEvent>) -> Self {
         Self { config, tx }
     }
 
@@ -80,42 +93,55 @@ impl WsClient {
     async fn connect_once(&self, url: &str) -> Result<()> {
         let (ws_stream, _) = connect_async(url).await?;
         info!("WebSocket connected to Codex App-Server");
+        let _ = self
+            .tx
+            .send(WsClientEvent::Lifecycle(WsLifecycle::Connected))
+            .await;
 
-        let (mut write, mut read) = ws_stream.split();
+        let result = async {
+            let (mut write, mut read) = ws_stream.split();
 
-        let init_msg = json!({
-            "jsonrpc": "2.0",
-            "id": 0,
-            "method": "initialize",
-            "params": {
-                "clientInfo": {
-                    "name": "codex-island",
-                    "title": "Codex Island",
-                    "version": "0.1.0"
-                },
-                "capabilities": {
-                    "experimentalApi": true
+            let init_msg = json!({
+                "jsonrpc": "2.0",
+                "id": 0,
+                "method": "initialize",
+                "params": {
+                    "clientInfo": {
+                        "name": "codex-island",
+                        "title": "Codex Island",
+                        "version": "0.1.0"
+                    },
+                    "capabilities": {
+                        "experimentalApi": true
+                    }
+                }
+            });
+            write.send(Message::Text(init_msg.to_string())).await?;
+
+            let initialized = json!({
+                "jsonrpc": "2.0",
+                "method": "initialized",
+                "params": {}
+            });
+            write.send(Message::Text(initialized.to_string())).await?;
+
+            while let Some(message) = read.next().await {
+                match message? {
+                    Message::Text(text) => self.handle_ws_message(&text).await,
+                    Message::Close(_) => break,
+                    _ => {}
                 }
             }
-        });
-        write.send(Message::Text(init_msg.to_string())).await?;
 
-        let initialized = json!({
-            "jsonrpc": "2.0",
-            "method": "initialized",
-            "params": {}
-        });
-        write.send(Message::Text(initialized.to_string())).await?;
-
-        while let Some(message) = read.next().await {
-            match message? {
-                Message::Text(text) => self.handle_ws_message(&text).await,
-                Message::Close(_) => break,
-                _ => {}
-            }
+            Ok(())
         }
+        .await;
 
-        Ok(())
+        let _ = self
+            .tx
+            .send(WsClientEvent::Lifecycle(WsLifecycle::Disconnected))
+            .await;
+        result
     }
 
     async fn handle_ws_message(&self, text: &str) {
@@ -142,7 +168,7 @@ impl WsClient {
             method,
             params: value.get("params").cloned().unwrap_or(Value::Null),
         };
-        let _ = self.tx.send(event).await;
+        let _ = self.tx.send(WsClientEvent::State(event)).await;
     }
 }
 
@@ -166,7 +192,7 @@ fn is_interesting_method(method: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_interesting_method, WsClient, WsConfig};
+    use super::{is_interesting_method, WsClient, WsClientEvent, WsConfig, WsLifecycle};
     use futures_util::{SinkExt, StreamExt};
     use serde_json::json;
     use tokio::net::TcpListener;
@@ -222,7 +248,7 @@ mod tests {
             socket.close(None).await.unwrap();
         });
 
-        let (tx, mut rx) = mpsc::channel(1);
+        let (tx, mut rx) = mpsc::channel(8);
         let client = WsClient::new(
             WsConfig {
                 host: "127.0.0.1".to_string(),
@@ -237,13 +263,34 @@ mod tests {
             .await
             .unwrap();
 
+        let connected = timeout(Duration::from_secs(2), rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(matches!(
+            connected,
+            WsClientEvent::Lifecycle(WsLifecycle::Connected)
+        ));
+
         let event = timeout(Duration::from_secs(2), rx.recv())
             .await
             .unwrap()
             .unwrap();
+        let WsClientEvent::State(event) = event else {
+            panic!("expected state event");
+        };
         assert_eq!(event.method, "thread/status/changed");
         assert_eq!(event.params["threadId"], "thread-1");
         assert_eq!(event.params["status"]["type"], "active");
+
+        let disconnected = timeout(Duration::from_secs(2), rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(matches!(
+            disconnected,
+            WsClientEvent::Lifecycle(WsLifecycle::Disconnected)
+        ));
 
         server.await.unwrap();
     }
