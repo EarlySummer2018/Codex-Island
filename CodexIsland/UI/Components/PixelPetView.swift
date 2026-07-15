@@ -23,6 +23,9 @@ struct PixelPetView: View {
             .onChange(of: animationName) { newAnimation in
                 startBaseAnimation(newAnimation)
             }
+            .onChange(of: form) { _ in
+                startBaseAnimation(animationName)
+            }
             .onChange(of: feedTrigger) { trigger in
                 guard trigger != nil else {
                     return
@@ -68,7 +71,13 @@ struct PixelPetView: View {
         activeAnimation = animation
         currentFrame = 0
 
-        let frameCount = max(animation.petFrameCount(facingLeft: isFacingLeft), 1)
+        let frameCount = max(
+            PetAtlasRepository.shared.frameCount(
+                for: animation.petAtlasState(facingLeft: isFacingLeft),
+                form: form
+            ),
+            1
+        )
         var advancedFrames = 0
 
         let timer = Timer(timeInterval: 1.0 / Double(animation.fps), repeats: true) { timer in

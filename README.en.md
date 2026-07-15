@@ -37,7 +37,7 @@ Choose **Custom Pets** from the menu bar or Settings to open this directory. Eac
 ```text
 01-lv00-09/
 ├── pet.json
-└── spritesheet.webp
+└── spritesheet.png (or spritesheet.webp)
 ```
 
 Example manifest:
@@ -51,7 +51,7 @@ Example manifest:
 }
 ```
 
-The atlas must be a `1536x1872` WebP using an 8 x 9 grid of `192x208` cells. Required frames must be non-empty, unused cells must be fully transparent, and `spritesheetPath` must be a safe relative path inside the stage directory.
+The atlas may be PNG or WebP. It must be 1536 pixels wide and at least 1872 pixels high, with the height aligned to 208-pixel rows. Each row has at most 8 `192x208` frame slots. The app detects non-transparent frames per row and skips transparent slots instead of requiring a fixed frame count. A fully transparent row falls back to stage one or the bundled pet, and animation rows after the first 9 are ignored. `spritesheetPath` must be a safe relative path inside the stage directory, and its extension must match the actual PNG/WebP encoding.
 
 Resource priority:
 

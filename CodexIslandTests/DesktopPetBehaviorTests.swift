@@ -888,10 +888,10 @@ final class DesktopPetBehaviorTests: XCTestCase {
     }
 
     func testPetFrameIndexWrapsToAtlasColumns() {
-        XCTAssertEqual(PetAtlasSpec.visibleColumnCount(for: .idle), 6)
-        XCTAssertEqual(PetAtlasSpec.visibleColumnCount(for: .waving), 4)
-        XCTAssertEqual(PetAtlasSpec.visibleColumnCount(for: .jumping), 5)
-        XCTAssertEqual(PetAtlasSpec.visibleColumnCount(for: .runningRight), 8)
+        XCTAssertEqual(PetAtlasSpec.bundledFrameCount(for: .idle), 6)
+        XCTAssertEqual(PetAtlasSpec.bundledFrameCount(for: .waving), 4)
+        XCTAssertEqual(PetAtlasSpec.bundledFrameCount(for: .jumping), 5)
+        XCTAssertEqual(PetAtlasSpec.bundledFrameCount(for: .runningRight), 8)
 
         XCTAssertEqual(PetAtlasSpec.normalizedFrameIndex(5, for: .idle), 5)
         XCTAssertEqual(PetAtlasSpec.normalizedFrameIndex(6, for: .idle), 0)

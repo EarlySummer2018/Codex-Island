@@ -37,7 +37,7 @@ ${CODEX_HOME:-$HOME/.codex}/pets/codex-island-stages/
 ```text
 01-lv00-09/
 ├── pet.json
-└── spritesheet.webp
+└── spritesheet.png（或 spritesheet.webp）
 ```
 
 `pet.json` 示例：
@@ -53,10 +53,10 @@ ${CODEX_HOME:-$HOME/.codex}/pets/codex-island-stages/
 
 图集必须满足 Codex 宠物规范：
 
-- WebP，尺寸 `1536x1872`。
-- 8 列 x 9 行，每个单元格 `192x208`。
-- 使用中的帧必须非空，未使用单元格必须完全透明。
-- `spritesheetPath` 必须是阶段目录内的安全相对路径。
+- PNG 或 WebP，宽度固定为 `1536`，高度至少为 `1872` 且必须是 `208` 的整数倍。
+- 每行最多 8 帧，每个单元格 `192x208`，图集至少包含当前支持的 9 行动画。
+- 每个槽位都允许透明；应用会逐行识别实际非透明帧并跳过透明槽位，不要求各行动画使用固定帧数。整行为空时回退到第一阶段或内置宠物，超过 9 行的扩展动画行由当前版本忽略。
+- `spritesheetPath` 必须是阶段目录内的安全相对路径，扩展名必须与实际 PNG/WebP 编码一致。
 
 资源选择顺序：
 
@@ -119,8 +119,8 @@ sidecar 优先消费 Codex App-Server 事件，必要时回退到脱敏后的本
 发布版本以 `project.yml` 中的 `MARKETING_VERSION` 为准。版本 tag 必须与它一致：
 
 ```bash
-git tag v1.2.0
-git push origin v1.2.0
+git tag v1.2.1
+git push origin v1.2.1
 ```
 
 GitHub Actions 会验证版本、运行 Rust 与 Swift 测试、构建 universal 与 x86_64 macOS 应用，并生成 `.zip`、`.dmg`、`.pkg`、SHA-256 校验文件和中文 Release Notes。

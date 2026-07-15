@@ -184,11 +184,12 @@ final class CustomPetCatalog {
     private func safeSpritesheetURL(path: String, inside stageDirectory: URL) -> URL? {
         let trimmedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
         let pathValue = trimmedPath as NSString
+        let pathExtension = URL(fileURLWithPath: trimmedPath).pathExtension.lowercased()
         guard !trimmedPath.isEmpty,
               !pathValue.isAbsolutePath,
               !trimmedPath.hasPrefix("~"),
               !pathValue.pathComponents.contains(".."),
-              URL(fileURLWithPath: trimmedPath).pathExtension.lowercased() == "webp" else {
+              PetAtlasValidator.supportedFileExtensions.contains(pathExtension) else {
             return nil
         }
 
@@ -222,18 +223,33 @@ struct PetFrameKey: Hashable {
     let source: PetAtlasSourceKind
 }
 
+private struct CustomPetAtlas {
+    let image: CGImage
+    let frameColumnsByRow: [[Int]]
+
+    func frameColumns(for state: PetAtlasState) -> [Int] {
+        guard frameColumnsByRow.indices.contains(state.row) else {
+            return []
+        }
+        return frameColumnsByRow[state.row]
+    }
+}
+
 enum PetAtlasValidator {
-    static func loadValidatedWebP(at url: URL) -> CGImage? {
-        guard url.pathExtension.lowercased() == "webp",
+    static let supportedFileExtensions: Set<String> = ["png", "webp"]
+
+    static func loadValidatedImage(at url: URL) -> CGImage? {
+        let pathExtension = url.pathExtension.lowercased()
+        guard let expectedType = expectedTypeIdentifier(for: pathExtension),
               let imageSource = CGImageSourceCreateWithURL(url as CFURL, nil),
               let sourceType = CGImageSourceGetType(imageSource),
-              sourceType as String == UTType.webP.identifier,
+              sourceType as String == expectedType,
               let properties = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, nil)
                 as? [CFString: Any],
               let width = properties[kCGImagePropertyPixelWidth] as? Int,
               let height = properties[kCGImagePropertyPixelHeight] as? Int,
               width == PetAtlasSpec.atlasWidth,
-              height == PetAtlasSpec.atlasHeight,
+              isSupportedHeight(height),
               let image = CGImageSourceCreateImageAtIndex(imageSource, 0, nil),
               isValidAtlas(image) else {
             return nil
@@ -242,39 +258,21 @@ enum PetAtlasValidator {
         return image
     }
 
-    static func isValidAtlas(_ image: CGImage) -> Bool {
-        guard image.width == PetAtlasSpec.atlasWidth,
-              image.height == PetAtlasSpec.atlasHeight else {
-            return false
-        }
-
-        for state in PetAtlasState.allCases {
-            let visibleColumnCount = PetAtlasSpec.visibleColumnCount(for: state)
-            guard let rowImage = image.cropping(
+    static func nonTransparentColumns(in image: CGImage, for state: PetAtlasState) -> [Int]? {
+        guard isValidAtlas(image),
+              let rowImage = image.cropping(
                 to: CGRect(
                     x: 0,
                     y: state.row * PetAtlasSpec.cellHeight,
                     width: PetAtlasSpec.atlasWidth,
                     height: PetAtlasSpec.cellHeight
                 )
-            ), let columnVisibility = visibleColumns(in: rowImage) else {
-                return false
-            }
-
-            for column in 0..<visibleColumnCount where !columnVisibility[column] {
-                return false
-            }
-            for column in visibleColumnCount..<PetAtlasSpec.columns where columnVisibility[column] {
-                return false
-            }
+              ) else {
+            return nil
         }
 
-        return true
-    }
-
-    private static func visibleColumns(in image: CGImage) -> [Bool]? {
-        let width = image.width
-        let height = image.height
+        let width = rowImage.width
+        let height = rowImage.height
         let bytesPerPixel = 4
         let bytesPerRow = width * bytesPerPixel
         var pixels = [UInt8](repeating: 0, count: bytesPerRow * height)
@@ -282,7 +280,7 @@ enum PetAtlasValidator {
         let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue
             | CGBitmapInfo.byteOrder32Big.rawValue
 
-        let drewImage = pixels.withUnsafeMutableBytes { buffer -> Bool in
+        let didDraw = pixels.withUnsafeMutableBytes { buffer -> Bool in
             guard let context = CGContext(
                 data: buffer.baseAddress,
                 width: width,
@@ -296,28 +294,51 @@ enum PetAtlasValidator {
             }
 
             context.clear(CGRect(x: 0, y: 0, width: width, height: height))
-            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            context.draw(rowImage, in: CGRect(x: 0, y: 0, width: width, height: height))
             return true
         }
 
-        guard drewImage else {
+        guard didDraw else {
             return nil
         }
 
-        var result = [Bool](repeating: false, count: PetAtlasSpec.columns)
+        var visible = [Bool](repeating: false, count: PetAtlasSpec.columns)
         for y in 0..<height {
             let rowOffset = y * bytesPerRow
             for x in 0..<width where pixels[rowOffset + x * bytesPerPixel + 3] > 0 {
-                result[min(x / PetAtlasSpec.cellWidth, PetAtlasSpec.columns - 1)] = true
+                visible[min(x / PetAtlasSpec.cellWidth, PetAtlasSpec.columns - 1)] = true
             }
         }
-        return result
+
+        return visible.indices.filter { visible[$0] }
+    }
+
+    private static func expectedTypeIdentifier(for pathExtension: String) -> String? {
+        switch pathExtension {
+        case "png": return UTType.png.identifier
+        case "webp": return UTType.webP.identifier
+        default: return nil
+        }
+    }
+
+    static func isValidAtlas(_ image: CGImage) -> Bool {
+        image.width == PetAtlasSpec.atlasWidth && isSupportedHeight(image.height)
+    }
+
+    private static func isSupportedHeight(_ height: Int) -> Bool {
+        height >= PetAtlasSpec.atlasHeight && height.isMultiple(of: PetAtlasSpec.cellHeight)
     }
 }
 
 private enum CustomPetAtlasLoad {
-    case valid(CGImage)
+    case valid(CustomPetAtlas)
     case invalid
+}
+
+private struct ResolvedPetFrameSource {
+    let kind: PetAtlasSourceKind
+    let sheet: CGImage
+    let columns: [Int]
 }
 
 final class PetAtlasRepository {
@@ -350,24 +371,18 @@ final class PetAtlasRepository {
     }
 
     func image(for state: PetAtlasState, frame: Int, form: PetForm) -> NSImage? {
-        let column = PetAtlasSpec.normalizedFrameIndex(frame, for: state)
-        let source = sourceKind(for: form)
-        let key = PetFrameKey(state: state, column: column, source: source)
+        guard let source = resolvedFrameSource(for: state, form: form) else {
+            return nil
+        }
+        let sequenceIndex = PetAtlasSpec.normalizedFrameIndex(
+            frame,
+            frameCount: source.columns.count
+        )
+        let column = source.columns[sequenceIndex]
+        let key = PetFrameKey(state: state, column: column, source: source.kind)
 
         if let cached = frameCache[key] {
             return cached
-        }
-
-        let sheet: CGImage?
-        switch source {
-        case .custom(let stage):
-            sheet = customImage(for: stage)
-        case .bundled:
-            sheet = bundledImage()
-        }
-
-        guard let sheet else {
-            return nil
         }
 
         let cropRect = CGRect(
@@ -376,12 +391,12 @@ final class PetAtlasRepository {
             width: PetAtlasSpec.cellWidth,
             height: PetAtlasSpec.cellHeight
         )
-        guard let croppedFrame = sheet.cropping(to: cropRect) else {
+        guard let croppedFrame = source.sheet.cropping(to: cropRect) else {
             return nil
         }
 
         let frameImage: CGImage
-        switch source {
+        switch source.kind {
         case .custom:
             frameImage = croppedFrame
         case .bundled:
@@ -400,35 +415,85 @@ final class PetAtlasRepository {
         return image
     }
 
+    func frameCount(for state: PetAtlasState, form: PetForm) -> Int {
+        resolvedFrameSource(for: state, form: form)?.columns.count ?? 1
+    }
+
+    func frameColumns(for state: PetAtlasState, form: PetForm) -> [Int] {
+        resolvedFrameSource(for: state, form: form)?.columns ?? [0]
+    }
+
     func sourceKind(for form: PetForm) -> PetAtlasSourceKind {
         let stage = CustomPetStage.stage(for: form)
-        if customImage(for: stage) != nil {
+        if customAtlas(for: stage) != nil {
             return .custom(stage)
         }
 
-        if stage != .stage1, customImage(for: .stage1) != nil {
+        if stage != .stage1, customAtlas(for: .stage1) != nil {
             return .custom(.stage1)
         }
 
         return .bundled(form)
     }
 
-    private func customImage(for stage: CustomPetStage) -> CGImage? {
+    private func resolvedFrameSource(
+        for state: PetAtlasState,
+        form: PetForm
+    ) -> ResolvedPetFrameSource? {
+        let stage = CustomPetStage.stage(for: form)
+        let customStages = stage == .stage1 ? [stage] : [stage, .stage1]
+
+        for customStage in customStages {
+            guard let atlas = customAtlas(for: customStage) else {
+                continue
+            }
+            let columns = atlas.frameColumns(for: state)
+            guard !columns.isEmpty else {
+                continue
+            }
+            return ResolvedPetFrameSource(
+                kind: .custom(customStage),
+                sheet: atlas.image,
+                columns: columns
+            )
+        }
+
+        guard let sheet = bundledImage() else {
+            return nil
+        }
+        return ResolvedPetFrameSource(
+            kind: .bundled(form),
+            sheet: sheet,
+            columns: Array(0..<PetAtlasSpec.bundledFrameCount(for: state))
+        )
+    }
+
+    private func customAtlas(for stage: CustomPetStage) -> CustomPetAtlas? {
         if let existing = customLoads[stage] {
             switch existing {
-            case .valid(let image): return image
+            case .valid(let atlas): return atlas
             case .invalid: return nil
             }
         }
 
         guard let package = catalog.packages[stage],
-              let image = PetAtlasValidator.loadValidatedWebP(at: package.spritesheetURL) else {
+              let image = PetAtlasValidator.loadValidatedImage(at: package.spritesheetURL) else {
             customLoads[stage] = .invalid
             return nil
         }
 
-        customLoads[stage] = .valid(image)
-        return image
+        var frameColumnsByRow: [[Int]] = []
+        for state in PetAtlasState.allCases {
+            guard let columns = PetAtlasValidator.nonTransparentColumns(in: image, for: state) else {
+                customLoads[stage] = .invalid
+                return nil
+            }
+            frameColumnsByRow.append(columns)
+        }
+
+        let atlas = CustomPetAtlas(image: image, frameColumnsByRow: frameColumnsByRow)
+        customLoads[stage] = .valid(atlas)
+        return atlas
     }
 
     private func bundledImage() -> CGImage? {

@@ -1,5 +1,6 @@
 import AppKit
 import CoreGraphics
+import ImageIO
 import XCTest
 @testable import CodexIsland
 
@@ -72,6 +73,52 @@ final class CustomPetCatalogTests: XCTestCase {
         XCTAssertNil(scannedCatalog.packages[.stage4])
     }
 
+    func testScansAndLoadsPNGPackage() throws {
+        let root = makeTemporaryRoot()
+        let initialCatalog = CustomPetCatalog(rootDirectory: root)
+        try writeManifest(
+            manifest(path: "spritesheet.png"),
+            stage: .stage1,
+            catalog: initialCatalog
+        )
+        try pngSpritesheetData().write(
+            to: initialCatalog.directory(for: .stage1).appendingPathComponent("spritesheet.png")
+        )
+
+        let catalog = CustomPetCatalog(rootDirectory: root)
+        let repository = PetAtlasRepository(catalog: catalog)
+        XCTAssertEqual(repository.sourceKind(for: .original), .custom(.stage1))
+        XCTAssertNotNil(repository.image(for: .idle, frame: 7, form: .original))
+    }
+
+    func testRejectsUnsupportedExtensionAndMismatchedImageEncoding() throws {
+        let root = makeTemporaryRoot()
+        let initialCatalog = CustomPetCatalog(rootDirectory: root)
+
+        try writeManifest(
+            manifest(path: "spritesheet.gif"),
+            stage: .stage1,
+            catalog: initialCatalog
+        )
+        try bundledSpritesheetData().write(
+            to: initialCatalog.directory(for: .stage1).appendingPathComponent("spritesheet.gif")
+        )
+
+        try writeManifest(
+            manifest(path: "spritesheet.png"),
+            stage: .stage2,
+            catalog: initialCatalog
+        )
+        try bundledSpritesheetData().write(
+            to: initialCatalog.directory(for: .stage2).appendingPathComponent("spritesheet.png")
+        )
+
+        let catalog = CustomPetCatalog(rootDirectory: root)
+        let repository = PetAtlasRepository(catalog: catalog)
+        XCTAssertNil(catalog.packages[.stage1])
+        XCTAssertEqual(repository.sourceKind(for: .shoesPink), .bundled(.shoesPink))
+    }
+
     func testRejectsAbsoluteTraversalAndOutsideSymlinkSpritesheetPaths() throws {
         let root = makeTemporaryRoot()
         let initialCatalog = CustomPetCatalog(rootDirectory: root)
@@ -108,20 +155,43 @@ final class CustomPetCatalogTests: XCTestCase {
         XCTAssertNil(scannedCatalog.packages[.stage4])
     }
 
-    func testAtlasValidatorEnforcesGeometryRequiredFramesAndTransparentUnusedCells() throws {
-        let valid = try makeContractAtlas()
-        XCTAssertTrue(PetAtlasValidator.isValidAtlas(valid))
+    func testAtlasValidatorAllowsAnyTransparentFrameSlotsWithinEightColumns() throws {
+        let fullyTransparent = try makeAtlas()
+        XCTAssertTrue(PetAtlasValidator.isValidAtlas(fullyTransparent))
+        XCTAssertEqual(
+            PetAtlasValidator.nonTransparentColumns(in: fullyTransparent, for: .idle),
+            []
+        )
 
-        let missingRequired = try makeContractAtlas(blankCell: (.idle, 0))
-        XCTAssertFalse(PetAtlasValidator.isValidAtlas(missingRequired))
+        let seventhAndEighthFrames = try makeAtlas(filledCells: [(.idle, 6), (.idle, 7)])
+        XCTAssertTrue(PetAtlasValidator.isValidAtlas(seventhAndEighthFrames))
+        XCTAssertEqual(
+            PetAtlasValidator.nonTransparentColumns(in: seventhAndEighthFrames, for: .idle),
+            [6, 7]
+        )
 
-        let nonTransparentUnused = try makeContractAtlas(filledUnusedCell: (.idle, 7))
-        XCTAssertFalse(PetAtlasValidator.isValidAtlas(nonTransparentUnused))
+        let internalTransparentFrame = try makeAtlas(filledCells: [(.running, 0), (.running, 7)])
+        XCTAssertTrue(PetAtlasValidator.isValidAtlas(internalTransparentFrame))
+        XCTAssertEqual(
+            PetAtlasValidator.nonTransparentColumns(in: internalTransparentFrame, for: .running),
+            [0, 7]
+        )
+    }
 
-        guard let wrongSize = valid.cropping(to: CGRect(x: 0, y: 0, width: 100, height: 100)) else {
-            return XCTFail("Expected cropped image")
-        }
-        XCTAssertFalse(PetAtlasValidator.isValidAtlas(wrongSize))
+    func testAtlasValidatorRequiresEightColumnsAndAtLeastNineAlignedRows() throws {
+        XCTAssertTrue(PetAtlasValidator.isValidAtlas(try makeAtlas(rowCount: 9)))
+        XCTAssertTrue(PetAtlasValidator.isValidAtlas(try makeAtlas(rowCount: 11)))
+        XCTAssertFalse(PetAtlasValidator.isValidAtlas(try makeAtlas(rowCount: 8)))
+        XCTAssertFalse(
+            PetAtlasValidator.isValidAtlas(
+                try makeAtlas(width: PetAtlasSpec.atlasWidth - PetAtlasSpec.cellWidth)
+            )
+        )
+        XCTAssertFalse(
+            PetAtlasValidator.isValidAtlas(
+                try makeAtlas(height: PetAtlasSpec.atlasHeight + 1)
+            )
+        )
     }
 
     func testEmptyCatalogUsesEachFormsBundledDefaultPet() {
@@ -149,6 +219,52 @@ final class CustomPetCatalogTests: XCTestCase {
         XCTAssertEqual(repository.sourceKind(for: .shoesPink), .custom(.stage1))
         XCTAssertEqual(repository.sourceKind(for: .legsPink), .custom(.stage1))
         XCTAssertEqual(repository.sourceKind(for: .fullPink), .custom(.stage1))
+    }
+
+    func testCustomAtlasesDeriveFrameCountsWhileBundledCountsStayUnchanged() throws {
+        let root = makeTemporaryRoot()
+        let catalog = CustomPetCatalog(rootDirectory: root)
+        try writeValidPackage(stage: .stage1, catalog: catalog)
+
+        let repository = PetAtlasRepository(catalog: catalog)
+        repository.reloadCustomPets()
+
+        XCTAssertEqual(repository.frameCount(for: .idle, form: .original), 6)
+        XCTAssertEqual(repository.frameCount(for: .waving, form: .original), 4)
+        XCTAssertEqual(repository.frameCount(for: .jumping, form: .original), 5)
+        XCTAssertNotNil(repository.image(for: .idle, frame: 7, form: .original))
+
+        XCTAssertEqual(repository.frameCount(for: .idle, form: .shoesPink), 6)
+
+        let bundledRepository = PetAtlasRepository(
+            catalog: CustomPetCatalog(rootDirectory: makeTemporaryRoot())
+        )
+        XCTAssertEqual(bundledRepository.frameCount(for: .idle, form: .original), 6)
+        XCTAssertEqual(bundledRepository.frameCount(for: .waving, form: .original), 4)
+        XCTAssertEqual(bundledRepository.frameCount(for: .jumping, form: .original), 5)
+        XCTAssertEqual(bundledRepository.frameCount(for: .runningRight, form: .original), 8)
+    }
+
+    func testCustomAnimationSkipsTrailingAndInternalTransparentSlots() throws {
+        let root = makeTemporaryRoot()
+        let catalog = CustomPetCatalog(rootDirectory: root)
+        let atlas = try makeAtlas(filledCells: [(.idle, 0), (.idle, 2), (.idle, 7)])
+        try writeManifest(
+            manifest(path: "spritesheet.png"),
+            stage: .stage1,
+            catalog: catalog
+        )
+        try pngData(from: atlas).write(
+            to: catalog.directory(for: .stage1).appendingPathComponent("spritesheet.png")
+        )
+
+        let repository = PetAtlasRepository(catalog: CustomPetCatalog(rootDirectory: root))
+        XCTAssertEqual(repository.sourceKind(for: .original), .custom(.stage1))
+        XCTAssertEqual(repository.frameColumns(for: .idle, form: .original), [0, 2, 7])
+        XCTAssertEqual(repository.frameCount(for: .idle, form: .original), 3)
+
+        XCTAssertEqual(repository.frameColumns(for: .running, form: .original), [0, 1, 2, 3, 4, 5])
+        XCTAssertEqual(repository.frameCount(for: .running, form: .original), 6)
     }
 
     func testLevelElevenUsesFirstStageWhenSecondStageIsMissing() throws {
@@ -232,6 +348,10 @@ final class CustomPetCatalogTests: XCTestCase {
         }
 
         let sourceDirectory = URL(fileURLWithPath: packagePath, isDirectory: true)
+        let sourceManifest = try JSONDecoder().decode(
+            CodexPetManifest.self,
+            from: Data(contentsOf: sourceDirectory.appendingPathComponent("pet.json"))
+        )
         let root = makeTemporaryRoot()
         let initialCatalog = CustomPetCatalog(rootDirectory: root)
         let stageDirectory = initialCatalog.directory(for: .stage1)
@@ -240,17 +360,35 @@ final class CustomPetCatalogTests: XCTestCase {
             to: stageDirectory.appendingPathComponent("pet.json")
         )
         try FileManager.default.copyItem(
-            at: sourceDirectory.appendingPathComponent("spritesheet.webp"),
-            to: stageDirectory.appendingPathComponent("spritesheet.webp")
+            at: sourceDirectory.appendingPathComponent(sourceManifest.spritesheetPath),
+            to: stageDirectory.appendingPathComponent(sourceManifest.spritesheetPath)
         )
 
         let catalog = CustomPetCatalog(rootDirectory: root)
         let repository = PetAtlasRepository(catalog: catalog)
-        XCTAssertEqual(catalog.packages[.stage1]?.manifest.id, "ruby")
+        XCTAssertEqual(catalog.packages[.stage1]?.manifest.id, sourceManifest.id)
         for form in PetForm.allCases {
             XCTAssertEqual(repository.sourceKind(for: form), .custom(.stage1))
         }
         XCTAssertNotNil(repository.image(for: .idle, frame: 0, form: .fullPink))
+
+        guard let image = PetAtlasValidator.loadValidatedImage(
+            at: stageDirectory.appendingPathComponent(sourceManifest.spritesheetPath)
+        ) else {
+            return XCTFail("Expected external atlas to load")
+        }
+        for state in PetAtlasState.allCases {
+            let detectedColumns = try XCTUnwrap(
+                PetAtlasValidator.nonTransparentColumns(in: image, for: state)
+            )
+            let expectedColumns = detectedColumns.isEmpty
+                ? Array(0..<PetAtlasSpec.bundledFrameCount(for: state))
+                : detectedColumns
+            XCTAssertEqual(
+                repository.frameColumns(for: state, form: .original),
+                expectedColumns
+            )
+        }
     }
 
     private func makeTemporaryRoot() -> URL {
@@ -292,16 +430,39 @@ final class CustomPetCatalogTests: XCTestCase {
         return asset.data
     }
 
-    private func makeContractAtlas(
-        blankCell: (PetAtlasState, Int)? = nil,
-        filledUnusedCell: (PetAtlasState, Int)? = nil
+    private func pngSpritesheetData() throws -> Data {
+        let webPData = try bundledSpritesheetData()
+        guard let source = CGImageSourceCreateWithData(webPData as CFData, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil),
+              let data = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else {
+            throw TestError.couldNotCreateImage
+        }
+        return data
+    }
+
+    private func pngData(from image: CGImage) throws -> Data {
+        guard let data = NSBitmapImageRep(cgImage: image).representation(
+            using: .png,
+            properties: [:]
+        ) else {
+            throw TestError.couldNotCreateImage
+        }
+        return data
+    }
+
+    private func makeAtlas(
+        width: Int = PetAtlasSpec.atlasWidth,
+        height: Int? = nil,
+        rowCount: Int = PetAtlasSpec.rows,
+        filledCells: [(PetAtlasState, Int)] = []
     ) throws -> CGImage {
+        let resolvedHeight = height ?? rowCount * PetAtlasSpec.cellHeight
         guard let context = CGContext(
             data: nil,
-            width: PetAtlasSpec.atlasWidth,
-            height: PetAtlasSpec.atlasHeight,
+            width: width,
+            height: resolvedHeight,
             bitsPerComponent: 8,
-            bytesPerRow: PetAtlasSpec.atlasWidth * 4,
+            bytesPerRow: width * 4,
             space: CGColorSpaceCreateDeviceRGB(),
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         ) else {
@@ -309,23 +470,15 @@ final class CustomPetCatalogTests: XCTestCase {
         }
 
         context.clear(
-            CGRect(x: 0, y: 0, width: PetAtlasSpec.atlasWidth, height: PetAtlasSpec.atlasHeight)
+            CGRect(x: 0, y: 0, width: width, height: resolvedHeight)
         )
         context.setFillColor(CGColor(red: 0.9, green: 0.2, blue: 0.5, alpha: 1))
 
-        for state in PetAtlasState.allCases {
-            for column in 0..<PetAtlasSpec.visibleColumnCount(for: state) {
-                if blankCell?.0 == state, blankCell?.1 == column {
-                    continue
-                }
-                fillTestPixel(state: state, column: column, context: context)
-            }
-        }
-
-        if let filledUnusedCell {
+        for filledCell in filledCells {
             fillTestPixel(
-                state: filledUnusedCell.0,
-                column: filledUnusedCell.1,
+                state: filledCell.0,
+                column: filledCell.1,
+                atlasHeight: resolvedHeight,
                 context: context
             )
         }
@@ -336,11 +489,16 @@ final class CustomPetCatalogTests: XCTestCase {
         return image
     }
 
-    private func fillTestPixel(state: PetAtlasState, column: Int, context: CGContext) {
+    private func fillTestPixel(
+        state: PetAtlasState,
+        column: Int,
+        atlasHeight: Int,
+        context: CGContext
+    ) {
         context.fill(
             CGRect(
                 x: column * PetAtlasSpec.cellWidth + 8,
-                y: PetAtlasSpec.atlasHeight - (state.row + 1) * PetAtlasSpec.cellHeight + 8,
+                y: atlasHeight - (state.row + 1) * PetAtlasSpec.cellHeight + 8,
                 width: 4,
                 height: 4
             )

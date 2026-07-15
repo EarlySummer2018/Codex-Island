@@ -133,12 +133,16 @@ enum PetAtlasSpec {
     static let atlasHeight = rows * cellHeight
 
     static func normalizedFrameIndex(_ frame: Int, for state: PetAtlasState) -> Int {
-        let visibleColumns = max(visibleColumnCount(for: state), 1)
-        let remainder = frame % visibleColumns
-        return remainder >= 0 ? remainder : remainder + visibleColumns
+        normalizedFrameIndex(frame, frameCount: bundledFrameCount(for: state))
     }
 
-    static func visibleColumnCount(for state: PetAtlasState) -> Int {
+    static func normalizedFrameIndex(_ frame: Int, frameCount: Int) -> Int {
+        let count = min(max(frameCount, 1), columns)
+        let remainder = frame % count
+        return remainder >= 0 ? remainder : remainder + count
+    }
+
+    static func bundledFrameCount(for state: PetAtlasState) -> Int {
         switch state {
         case .idle, .waiting, .running, .review:
             return 6
@@ -203,9 +207,5 @@ extension PetAnimation {
         }
 
         return (facingLeft ?? false) ? .runningLeft : .runningRight
-    }
-
-    func petFrameCount(facingLeft: Bool?) -> Int {
-        PetAtlasSpec.visibleColumnCount(for: petAtlasState(facingLeft: facingLeft))
     }
 }
