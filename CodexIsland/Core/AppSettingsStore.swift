@@ -46,6 +46,7 @@ enum AppTextKey {
     case hideCapsule
     case enableDesktopPet
     case disableDesktopPet
+    case freeMovement
     case capsuleStyle
     case largeCapsule
     case smallCapsule
@@ -113,26 +114,55 @@ final class AppSettingsStore: ObservableObject {
         }
     }
 
+    @Published var isDesktopPetFreeMovementEnabled: Bool {
+        didSet {
+            defaults.set(
+                isDesktopPetFreeMovementEnabled,
+                forKey: desktopPetFreeMovementEnabledKey
+            )
+        }
+    }
+
+    @Published var desktopPetScale: CGFloat {
+        didSet {
+            let clampedScale = DesktopPetScale.clamped(desktopPetScale)
+            if desktopPetScale != clampedScale {
+                desktopPetScale = clampedScale
+                return
+            }
+            defaults.set(Double(clampedScale), forKey: desktopPetScaleKey)
+        }
+    }
+
     @Published var capsuleExpansionTrigger: CapsuleExpansionTrigger {
         didSet {
             defaults.set(capsuleExpansionTrigger.rawValue, forKey: capsuleExpansionTriggerKey)
         }
     }
 
-    private let defaults = UserDefaults.standard
+    private let defaults: UserDefaults
     private let capsuleStyleKey = "CodexIsland.Settings.capsuleStyle"
     private let languageKey = "CodexIsland.Settings.language"
     private let capsuleVisibleKey = "CodexIsland.Settings.capsuleVisible"
     private let desktopPetEnabledKey = "CodexIsland.Settings.desktopPetEnabled"
+    private let desktopPetFreeMovementEnabledKey = "CodexIsland.Settings.desktopPetFreeMovementEnabled"
+    private let desktopPetScaleKey = "CodexIsland.Settings.desktopPetScale"
     private let capsuleExpansionTriggerKey = "CodexIsland.Settings.capsuleExpansionTrigger"
 
-    private init() {
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
         let savedStyle = defaults.string(forKey: capsuleStyleKey)
             .flatMap(CapsuleDisplayStyle.init(rawValue:)) ?? .large
         let savedLanguage = defaults.string(forKey: languageKey)
             .flatMap(AppLanguage.init(rawValue:)) ?? .chinese
         let savedVisibility = defaults.object(forKey: capsuleVisibleKey) as? Bool ?? true
         let savedDesktopPetEnabled = defaults.object(forKey: desktopPetEnabledKey) as? Bool ?? false
+        let savedDesktopPetFreeMovementEnabled = defaults.object(
+            forKey: desktopPetFreeMovementEnabledKey
+        ) as? Bool ?? true
+        let savedDesktopPetScale = DesktopPetScale.clamped(
+            CGFloat(defaults.object(forKey: desktopPetScaleKey) as? Double ?? 1)
+        )
         let savedExpansionTrigger = defaults.string(forKey: capsuleExpansionTriggerKey)
             .flatMap(CapsuleExpansionTrigger.init(rawValue:)) ?? .hover
 
@@ -140,6 +170,8 @@ final class AppSettingsStore: ObservableObject {
         language = savedLanguage
         isCapsuleVisible = savedVisibility
         isDesktopPetEnabled = savedDesktopPetEnabled
+        isDesktopPetFreeMovementEnabled = savedDesktopPetFreeMovementEnabled
+        desktopPetScale = savedDesktopPetScale
         capsuleExpansionTrigger = savedExpansionTrigger
     }
 
@@ -159,6 +191,7 @@ final class AppSettingsStore: ObservableObject {
         case .hideCapsule: return "隐藏胶囊"
         case .enableDesktopPet: return "开启桌宠模式"
         case .disableDesktopPet: return "关闭桌宠模式"
+        case .freeMovement: return "自由运动"
         case .capsuleStyle: return "胶囊样式"
         case .largeCapsule: return "大胶囊"
         case .smallCapsule: return "小胶囊"
@@ -206,6 +239,7 @@ final class AppSettingsStore: ObservableObject {
         case .hideCapsule: return "Hide Capsule"
         case .enableDesktopPet: return "Enable Desktop Pet"
         case .disableDesktopPet: return "Disable Desktop Pet"
+        case .freeMovement: return "Free Movement"
         case .capsuleStyle: return "Capsule Style"
         case .largeCapsule: return "Large Capsule"
         case .smallCapsule: return "Small Capsule"

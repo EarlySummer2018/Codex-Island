@@ -6,27 +6,41 @@ import CoreGraphics
 final class DesktopPetController: ObservableObject {
     static let shared = DesktopPetController()
 
-    @Published private(set) var phase: DesktopPetPhase = .disabled
-    @Published private(set) var action: DesktopPetAction = .idle
+    @Published private(set) var phase: DesktopPetPhase = .disabled {
+        didSet { syncInteractionRegion() }
+    }
+    @Published private(set) var action: DesktopPetAction = .idle {
+        didSet { syncInteractionRegion() }
+    }
     @Published private(set) var animationName: PetAnimation = .idleBreathe
     @Published private(set) var isFacingLeft = false
-    @Published private(set) var presentationScale = DesktopPetMetrics.desktopPresentationScale
+    @Published private(set) var presentationScale = DesktopPetMetrics.desktopPresentationScale {
+        didSet { syncInteractionRegion() }
+    }
+    @Published private(set) var userScale = AppSettingsStore.shared.desktopPetScale {
+        didSet { syncInteractionRegion() }
+    }
 
-    let windowSize = DesktopPetMetrics.windowSize
+    var windowSize: CGSize { DesktopPetScale.windowSize(for: userScale) }
     let petSize = DesktopPetMetrics.petSize
 
     private let settings = AppSettingsStore.shared
     private let eventBus = EventBus.shared
+    private let evolutionStore = PetEvolutionStore.shared
+    private let positionStore = DesktopPetPositionStore()
     private var panelStorage: DesktopPetPanel?
     private var cancellables = Set<AnyCancellable>()
     private var scheduledWorkItem: DispatchWorkItem?
     private var movementID = 0
     private var isConfigured = false
-    private var dragOffsetInWindow = CGPoint(
-        x: DesktopPetMetrics.windowSize.width / 2,
-        y: DesktopPetMetrics.windowSize.height * 0.62
-    )
+    private var isContextMenuPresented = false
+    private var dragOffsetInWindow = CGPoint.zero
     private var lastDragScreenLocation: CGPoint?
+    private var resizeStartScale: CGFloat?
+    private var resizeStartVector: CGVector?
+    private var resizeFootAnchorInScreen: CGPoint?
+    private var resizeInteraction: DesktopPetResizeInteraction?
+    private var scrollResizeWorkItem: DispatchWorkItem?
 
     private init() {}
 
@@ -65,6 +79,27 @@ final class DesktopPetController: ObservableObject {
             }
             .store(in: &cancellables)
 
+        settings.$isDesktopPetFreeMovementEnabled
+            .dropFirst()
+            .sink { [weak self] enabled in
+                self?.handleFreeMovementChanged(enabled)
+            }
+            .store(in: &cancellables)
+
+        settings.$language
+            .dropFirst()
+            .sink { [weak self] _ in
+                self?.syncInteractionRegion()
+            }
+            .store(in: &cancellables)
+
+        Publishers.CombineLatest(evolutionStore.$level, evolutionStore.$currentForm)
+            .dropFirst()
+            .sink { [weak self] _, _ in
+                self?.syncInteractionRegion()
+            }
+            .store(in: &cancellables)
+
         Publishers.CombineLatest(eventBus.$sessionState, eventBus.$activityKind)
             .dropFirst()
             .sink { [weak self] state, activity in
@@ -91,6 +126,7 @@ final class DesktopPetController: ObservableObject {
         action = .idle
         animationName = .idleBreathe
         presentationScale = DesktopPetMetrics.desktopPresentationScale
+        clearResizeState()
         panelStorage?.orderOut(nil)
     }
 
@@ -98,7 +134,8 @@ final class DesktopPetController: ObservableObject {
         guard phase != .disabled,
               phase != .waitingForCapsuleStill,
               phase != .returning,
-              phase != .dragging else {
+              phase != .dragging,
+              phase != .resizing else {
             return
         }
 
@@ -107,6 +144,20 @@ final class DesktopPetController: ObservableObject {
         phase = .dodging
         action = .dodging
         animationName = .startledHop
+
+        guard settings.isDesktopPetFreeMovementEnabled else {
+            let reactionID = movementID
+            runAfter(0.36) { [weak self] in
+                guard let self,
+                      self.movementID == reactionID,
+                      self.phase == .dodging else {
+                    return
+                }
+
+                self.landAndResume()
+            }
+            return
+        }
 
         let reactionID = movementID
         runAfter(0.18) { [weak self] in
@@ -118,10 +169,11 @@ final class DesktopPetController: ObservableObject {
         }
     }
 
-    func handleDragBegan(screenLocation: CGPoint, offsetInWindow: CGPoint) {
+    func handleDragBegan(screenLocation: CGPoint) {
         guard phase != .disabled,
               phase != .waitingForCapsuleStill,
-              phase != .returning else {
+              phase != .returning,
+              phase != .resizing else {
             return
         }
 
@@ -130,7 +182,10 @@ final class DesktopPetController: ObservableObject {
         phase = .dragging
         action = .dragging
         animationName = .dragHover
-        dragOffsetInWindow = offsetInWindow
+        dragOffsetInWindow = CGPoint(
+            x: screenLocation.x - currentOrigin.x,
+            y: screenLocation.y - currentOrigin.y
+        )
         lastDragScreenLocation = screenLocation
     }
 
@@ -162,7 +217,149 @@ final class DesktopPetController: ObservableObject {
         }
 
         handleDragChanged(screenLocation: screenLocation)
+        saveCurrentPosition()
         landAndResume()
+    }
+
+    func handleResizeBegan(screenLocation: CGPoint) {
+        guard phase != .disabled,
+              phase != .waitingForCapsuleStill,
+              phase != .returning,
+              phase != .dragging,
+              phase != .resizing else {
+            return
+        }
+
+        cancelScheduledWork()
+        freezeCurrentPanelMovement()
+        presentationScale = DesktopPetMetrics.desktopPresentationScale
+        let layout = interactionLayout
+        let footAnchor = CGPoint(
+            x: panel.frame.minX + layout.petFootAnchor.x,
+            y: panel.frame.minY + layout.petFootAnchor.y
+        )
+        resizeStartScale = userScale
+        resizeFootAnchorInScreen = footAnchor
+        resizeStartVector = CGVector(
+            dx: screenLocation.x - footAnchor.x,
+            dy: screenLocation.y - footAnchor.y
+        )
+        resizeInteraction = .drag
+        phase = .resizing
+        action = .pausing
+        animationName = restingAnimation(
+            for: eventBus.sessionState,
+            activity: eventBus.activityKind
+        )
+    }
+
+    func handleResizeChanged(screenLocation: CGPoint) {
+        guard phase == .resizing,
+              resizeInteraction == .drag,
+              let startScale = resizeStartScale,
+              let startVector = resizeStartVector,
+              let footAnchor = resizeFootAnchorInScreen else {
+            return
+        }
+
+        let currentVector = CGVector(
+            dx: screenLocation.x - footAnchor.x,
+            dy: screenLocation.y - footAnchor.y
+        )
+        let nextScale = DesktopPetInteractionGeometry.scale(
+            startScale: startScale,
+            startVector: startVector,
+            currentVector: currentVector
+        )
+        applyScale(nextScale, anchoredAt: footAnchor)
+    }
+
+    func handleResizeEnded(screenLocation: CGPoint) {
+        guard phase == .resizing,
+              resizeInteraction == .drag else {
+            return
+        }
+
+        handleResizeChanged(screenLocation: screenLocation)
+        settings.desktopPetScale = userScale
+        saveCurrentPosition()
+        clearResizeState()
+        phase = .roaming
+        resumeRoaming()
+    }
+
+    func handleScrollResize(
+        deltaY: CGFloat,
+        isPrecise: Bool,
+        phaseEnded: Bool
+    ) {
+        if abs(deltaY) <= 0.001 {
+            if phaseEnded, resizeInteraction == .scroll {
+                finishScrollResize()
+            }
+            return
+        }
+
+        if resizeInteraction == nil {
+            guard phase != .disabled,
+                  phase != .waitingForCapsuleStill,
+                  phase != .returning,
+                  phase != .dragging,
+                  phase != .resizing else {
+                return
+            }
+            beginScrollResize()
+        }
+
+        guard phase == .resizing,
+              resizeInteraction == .scroll,
+              let footAnchor = resizeFootAnchorInScreen else {
+            return
+        }
+
+        let nextScale = DesktopPetScrollScaling.scale(
+            from: userScale,
+            deltaY: deltaY,
+            isPrecise: isPrecise
+        )
+        applyScale(nextScale, anchoredAt: footAnchor)
+
+        if phaseEnded {
+            finishScrollResize()
+        } else {
+            scheduleScrollResizeFinish()
+        }
+    }
+
+    func contextMenuWillOpen() -> Bool {
+        guard settings.isDesktopPetEnabled,
+              phase != .disabled,
+              phase != .waitingForCapsuleStill,
+              phase != .returning,
+              phase != .dragging,
+              phase != .resizing else {
+            return false
+        }
+
+        isContextMenuPresented = true
+        cancelScheduledWork()
+        freezeCurrentPanelMovement()
+        saveCurrentPosition()
+        phase = .roaming
+        applyRestingState(eventBus.sessionState, activity: eventBus.activityKind)
+        return true
+    }
+
+    func contextMenuDidClose() {
+        isContextMenuPresented = false
+        guard settings.isDesktopPetEnabled,
+              phase != .disabled,
+              phase != .waitingForCapsuleStill,
+              phase != .returning else {
+            return
+        }
+
+        resumeRoaming()
     }
 
     private var panel: DesktopPetPanel {
@@ -172,6 +369,7 @@ final class DesktopPetController: ObservableObject {
 
         let panel = DesktopPetPanel(controller: self)
         panelStorage = panel
+        syncInteractionRegion()
         return panel
     }
 
@@ -185,6 +383,10 @@ final class DesktopPetController: ObservableObject {
         movementID += 1
 
         let anchor = NotchIslandPanel.shared.desktopPetAnchorPoint()
+        if !settings.isDesktopPetFreeMovementEnabled {
+            showStationaryPet(near: anchor)
+            return
+        }
         let startOrigin = DesktopPetBehaviorEngine.origin(
             centeredOn: anchor,
             windowSize: windowSize
@@ -195,7 +397,7 @@ final class DesktopPetController: ObservableObject {
         phase = .launching
         action = .strolling
         animationName = movingAnimation(for: state, activity: activity)
-        presentationScale = DesktopPetMetrics.capsulePresentationScale
+        presentationScale = DesktopPetScale.capsulePresentationScale(for: userScale)
         panel.setFrame(NSRect(origin: startOrigin, size: windowSize), display: true)
         panel.orderFrontRegardless()
 
@@ -238,6 +440,7 @@ final class DesktopPetController: ObservableObject {
 
         cancelScheduledWork()
         movementID += 1
+        clearResizeState()
 
         guard animated,
               settings.isCapsuleVisible,
@@ -267,6 +470,11 @@ final class DesktopPetController: ObservableObject {
         action = .pausing
         animationName = restingAnimation(for: state, activity: activity)
         presentationScale = DesktopPetMetrics.desktopPresentationScale
+
+        guard settings.isDesktopPetFreeMovementEnabled else {
+            scheduleStationaryMicroAction()
+            return
+        }
 
         if DesktopPetBehaviorEngine.shouldPauseRoaming(for: state, activity: activity) {
             applyStationaryState(state, activity: activity)
@@ -349,7 +557,7 @@ final class DesktopPetController: ObservableObject {
             maximum: 1.85
         )
 
-        presentationScale = DesktopPetMetrics.capsulePresentationScale
+        presentationScale = DesktopPetScale.capsulePresentationScale(for: userScale)
         movePanel(
             to: target,
             duration: returnDuration,
@@ -372,6 +580,11 @@ final class DesktopPetController: ObservableObject {
     }
 
     private func startDodge(from screenLocation: CGPoint, clickCount: Int) {
+        guard settings.isDesktopPetFreeMovementEnabled else {
+            landAndResume()
+            return
+        }
+
         let target = DesktopPetBehaviorEngine.dodgeTarget(
             from: currentOrigin,
             clickLocation: screenLocation,
@@ -394,6 +607,15 @@ final class DesktopPetController: ObservableObject {
     private func startRoamStep() {
         guard settings.isDesktopPetEnabled,
               phase == .roaming else {
+            return
+        }
+
+        guard !isContextMenuPresented else {
+            return
+        }
+
+        guard settings.isDesktopPetFreeMovementEnabled else {
+            playRestingMicroAction()
             return
         }
 
@@ -447,6 +669,15 @@ final class DesktopPetController: ObservableObject {
         phase = .roaming
         action = .pausing
         applyRestingState(eventBus.sessionState, activity: eventBus.activityKind)
+        guard !isContextMenuPresented else {
+            return
+        }
+
+        guard settings.isDesktopPetFreeMovementEnabled else {
+            scheduleStationaryMicroAction()
+            return
+        }
+
         if !DesktopPetBehaviorEngine.shouldPauseRoaming(
             for: eventBus.sessionState,
             activity: eventBus.activityKind
@@ -465,6 +696,12 @@ final class DesktopPetController: ObservableObject {
         }
 
         cancelScheduledWork()
+        if !settings.isDesktopPetFreeMovementEnabled {
+            applyRestingState(state, activity: activity)
+            scheduleStationaryMicroAction()
+            return
+        }
+
         if DesktopPetBehaviorEngine.shouldPauseRoaming(for: state, activity: activity) {
             applyStationaryState(
                 state,
@@ -491,6 +728,14 @@ final class DesktopPetController: ObservableObject {
 
         let state = eventBus.sessionState
         let activity = eventBus.activityKind
+        if state == .notLoaded || state == .idle {
+            action = .pausing
+            animationName = .idleWait
+            scheduleNextRoam(
+                delay: delayOverride ?? DesktopPetRoamingPolicy.idleRestDelay()
+            )
+            return
+        }
         let selectedAction = microAction(for: state, activity: activity)
         action = selectedAction
         animationName = animation(for: selectedAction, state: state, activity: activity)
@@ -596,12 +841,37 @@ final class DesktopPetController: ObservableObject {
             return
         }
 
+        let wasDirectInteraction = phase == .dragging || phase == .resizing
+        if !wasDirectInteraction {
+            cancelScheduledWork()
+            freezeCurrentPanelMovement()
+        }
         let clamped = DesktopPetBehaviorEngine.clampedOrigin(
             currentOrigin,
             windowSize: windowSize,
             in: visibleFrames
         )
         panel.setFrame(NSRect(origin: clamped, size: windowSize), display: true)
+        if phase == .resizing {
+            let layout = interactionLayout
+            let footAnchor = CGPoint(
+                x: clamped.x + layout.petFootAnchor.x,
+                y: clamped.y + layout.petFootAnchor.y
+            )
+            let mouseLocation = NSEvent.mouseLocation
+            resizeFootAnchorInScreen = footAnchor
+            if resizeInteraction == .drag {
+                resizeStartScale = userScale
+                resizeStartVector = CGVector(
+                    dx: mouseLocation.x - footAnchor.x,
+                    dy: mouseLocation.y - footAnchor.y
+                )
+            }
+        }
+        saveCurrentPosition()
+        if !wasDirectInteraction {
+            resumeRoaming()
+        }
     }
 
     private func movePanel(
@@ -612,6 +882,11 @@ final class DesktopPetController: ObservableObject {
         animation: PetAnimation,
         completion: (() -> Void)? = nil
     ) {
+        guard nextPhase == .returning || settings.isDesktopPetFreeMovementEnabled else {
+            resumeRoaming()
+            return
+        }
+
         cancelScheduledWork()
         movementID += 1
         let currentMovementID = movementID
@@ -679,6 +954,200 @@ final class DesktopPetController: ObservableObject {
         }
     }
 
+    private func handleFreeMovementChanged(_ enabled: Bool) {
+        guard settings.isDesktopPetEnabled,
+              phase != .disabled,
+              phase != .waitingForCapsuleStill,
+              phase != .returning,
+              phase != .resizing else {
+            return
+        }
+
+        cancelScheduledWork()
+        freezeCurrentPanelMovement()
+        presentationScale = DesktopPetMetrics.desktopPresentationScale
+        if !enabled {
+            let clamped = DesktopPetBehaviorEngine.clampedOrigin(
+                currentOrigin,
+                windowSize: windowSize,
+                in: visibleFrames
+            )
+            panel.setFrame(NSRect(origin: clamped, size: windowSize), display: true)
+            saveCurrentPosition()
+        }
+
+        phase = .roaming
+        applyRestingState(eventBus.sessionState, activity: eventBus.activityKind)
+        guard !isContextMenuPresented else {
+            return
+        }
+
+        if enabled {
+            resumeRoaming()
+        } else {
+            scheduleStationaryMicroAction()
+        }
+    }
+
+    private func showStationaryPet(near anchor: CGPoint) {
+        let origin = positionStore.restoredOrigin(
+            windowSize: windowSize,
+            displays: displayGeometries
+        ) ?? DesktopPetBehaviorEngine.attentionTarget(
+            near: anchor,
+            windowSize: windowSize,
+            in: visibleFrames
+        )
+        let clamped = DesktopPetBehaviorEngine.clampedOrigin(
+            origin,
+            windowSize: windowSize,
+            in: visibleFrames
+        )
+
+        panel.setFrame(NSRect(origin: clamped, size: windowSize), display: true)
+        panel.orderFrontRegardless()
+        presentationScale = DesktopPetMetrics.desktopPresentationScale
+        phase = .roaming
+        applyRestingState(eventBus.sessionState, activity: eventBus.activityKind)
+        saveCurrentPosition()
+        scheduleStationaryMicroAction()
+    }
+
+    private func scheduleStationaryMicroAction() {
+        guard settings.isDesktopPetEnabled,
+              !settings.isDesktopPetFreeMovementEnabled,
+              !isContextMenuPresented,
+              phase == .roaming else {
+            return
+        }
+
+        scheduleNextRoam(delay: nextRoamDelay)
+    }
+
+    private func saveCurrentPosition() {
+        guard let panelStorage,
+              let display = displayGeometry(containing: panelStorage.frame) else {
+            return
+        }
+
+        positionStore.save(windowFrame: panelStorage.frame, on: display)
+    }
+
+    private var interactionLayout: DesktopPetInteractionLayout {
+        DesktopPetInteractionGeometry.layout(
+            userScale: userScale,
+            presentationScale: presentationScale,
+            level: evolutionStore.level,
+            normalizedOpaqueBounds: PetAtlasRepository.shared.normalizedOpaqueBounds(
+                for: evolutionStore.currentForm
+            )
+        )
+    }
+
+    private func syncInteractionRegion() {
+        guard let panelStorage else {
+            return
+        }
+        let canResize = phase == .roaming || phase == .dropped || phase == .resizing
+        panelStorage.updateInteractionRegion(
+            interactionLayout,
+            showsResizeHandle: canResize && presentationScale == 1,
+            resizeToolTip: settings.language == .chinese
+                ? "拖拽或滚轮调整宠物大小"
+                : "Drag or scroll to resize pet"
+        )
+    }
+
+    private func clearResizeState() {
+        scrollResizeWorkItem?.cancel()
+        scrollResizeWorkItem = nil
+        resizeStartScale = nil
+        resizeStartVector = nil
+        resizeFootAnchorInScreen = nil
+        resizeInteraction = nil
+    }
+
+    private func beginScrollResize() {
+        cancelScheduledWork()
+        freezeCurrentPanelMovement()
+        presentationScale = DesktopPetMetrics.desktopPresentationScale
+        let layout = interactionLayout
+        resizeFootAnchorInScreen = CGPoint(
+            x: panel.frame.minX + layout.petFootAnchor.x,
+            y: panel.frame.minY + layout.petFootAnchor.y
+        )
+        resizeStartScale = nil
+        resizeStartVector = nil
+        resizeInteraction = .scroll
+        phase = .resizing
+        action = .pausing
+        animationName = restingAnimation(
+            for: eventBus.sessionState,
+            activity: eventBus.activityKind
+        )
+    }
+
+    private func applyScale(_ scale: CGFloat, anchoredAt footAnchor: CGPoint) {
+        userScale = DesktopPetScale.clamped(scale)
+        let layout = interactionLayout
+        let proposedOrigin = CGPoint(
+            x: footAnchor.x - layout.petFootAnchor.x,
+            y: footAnchor.y - layout.petFootAnchor.y
+        )
+        let clampedOrigin = DesktopPetBehaviorEngine.clampedOrigin(
+            proposedOrigin,
+            windowSize: windowSize,
+            in: visibleFrames
+        )
+        panel.setFrame(
+            CGRect(origin: clampedOrigin, size: windowSize),
+            display: true
+        )
+        syncInteractionRegion()
+    }
+
+    private func scheduleScrollResizeFinish() {
+        scrollResizeWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.finishScrollResize()
+        }
+        scrollResizeWorkItem = workItem
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + DesktopPetScrollScaling.finishDelay,
+            execute: workItem
+        )
+    }
+
+    private func finishScrollResize() {
+        guard phase == .resizing,
+              resizeInteraction == .scroll else {
+            return
+        }
+        settings.desktopPetScale = userScale
+        saveCurrentPosition()
+        clearResizeState()
+        phase = .roaming
+        resumeRoaming()
+    }
+
+    private func displayGeometry(containing frame: CGRect) -> DesktopPetDisplayGeometry? {
+        let center = CGPoint(x: frame.midX, y: frame.midY)
+        return displayGeometries.first { $0.visibleFrame.contains(center) }
+            ?? displayGeometries.max {
+                intersectionArea($0.visibleFrame, frame)
+                    < intersectionArea($1.visibleFrame, frame)
+            }
+            ?? displayGeometries.first
+    }
+
+    private func intersectionArea(_ lhs: CGRect, _ rhs: CGRect) -> CGFloat {
+        let intersection = lhs.intersection(rhs)
+        guard !intersection.isNull, !intersection.isEmpty else {
+            return 0
+        }
+        return intersection.width * intersection.height
+    }
+
     private func updateFacing(from origin: CGPoint, to target: CGPoint) {
         let deltaX = target.x - origin.x
         guard abs(deltaX) > 2 else {
@@ -724,6 +1193,25 @@ final class DesktopPetController: ObservableObject {
         return DesktopPetBehaviorEngine.normalized(frames)
     }
 
+    private var displayGeometries: [DesktopPetDisplayGeometry] {
+        NSScreen.screens.map {
+            DesktopPetDisplayGeometry(
+                identifier: $0.codexIslandIdentifier,
+                visibleFrame: normalizedVisibleFrame(for: $0)
+            )
+        }
+    }
+
+    private func normalizedVisibleFrame(for screen: NSScreen) -> CGRect {
+        let visibleFrame = screen.visibleFrame
+        guard !visibleFrame.isEmpty else {
+            return screen.frame
+        }
+
+        let intersection = visibleFrame.intersection(screen.frame)
+        return intersection.isNull || intersection.isEmpty ? screen.frame : intersection
+    }
+
     private var roamSpeed: CGFloat {
         DesktopPetBehaviorEngine.roamSpeed(
             for: eventBus.sessionState,
@@ -734,7 +1222,7 @@ final class DesktopPetController: ObservableObject {
     private var nextRoamDelay: TimeInterval {
         switch eventBus.sessionState {
         case .notLoaded, .idle:
-            return Double.random(in: 2.2...5.8)
+            return DesktopPetRoamingPolicy.idleRestDelay()
         case .running:
             switch eventBus.activityKind {
             case .reasoning:
@@ -759,7 +1247,10 @@ final class DesktopPetController: ObservableObject {
         for state: CodexSessionState,
         activity: CodexActivityKind
     ) -> PetAnimation {
-        PetAnimation.from(state: state, activityKind: activity)
+        if state == .notLoaded || state == .idle {
+            return .idleWait
+        }
+        return PetAnimation.from(state: state, activityKind: activity)
     }
 
     private func movingAnimation(
@@ -768,4 +1259,9 @@ final class DesktopPetController: ObservableObject {
     ) -> PetAnimation {
         DesktopPetBehaviorEngine.movingAnimation(for: state, activity: activity)
     }
+}
+
+private enum DesktopPetResizeInteraction {
+    case drag
+    case scroll
 }

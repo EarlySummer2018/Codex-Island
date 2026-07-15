@@ -13,7 +13,7 @@ struct SettingsPanelView: View {
             divider
 
             VStack(spacing: 8) {
-                HStack(spacing: 8) {
+                HStack(spacing: 6) {
                     settingToggle(
                         title: capsuleTitle,
                         systemImage: "capsule",
@@ -29,6 +29,13 @@ struct SettingsPanelView: View {
                         systemImage: "sparkles",
                         isOn: $settings.isDesktopPetEnabled,
                         color: PanelPalette.cyan
+                    )
+
+                    settingToggle(
+                        title: settings.text(.freeMovement),
+                        systemImage: "figure.walk.motion",
+                        isOn: $settings.isDesktopPetFreeMovementEnabled,
+                        color: PanelPalette.magenta
                     )
                 }
 
@@ -148,7 +155,7 @@ struct SettingsPanelView: View {
         color: Color
     ) -> some View {
         Toggle(isOn: isOn) {
-            HStack(spacing: 8) {
+            HStack(spacing: 4) {
                 Image(systemName: systemImage)
                     .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(color)
@@ -159,16 +166,18 @@ struct SettingsPanelView: View {
                     )
 
                 Text(title)
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .font(.system(size: 10, weight: .semibold, design: .rounded))
                     .foregroundStyle(PanelPalette.text)
                     .lineLimit(1)
+                    .minimumScaleFactor(0.62)
+                    .layoutPriority(1)
             }
         }
         .toggleStyle(.switch)
         .controlSize(.small)
         .tint(color)
-        .padding(.leading, 8)
-        .padding(.trailing, 10)
+        .padding(.leading, 6)
+        .padding(.trailing, 7)
         .frame(maxWidth: .infinity)
         .frame(height: 40)
         .background(

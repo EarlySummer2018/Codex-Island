@@ -89,6 +89,33 @@ final class NotchIslandPanel: NSPanel {
         orderFrontRegardless()
     }
 
+    func presentSettings() {
+        if !settings.isCapsuleVisible {
+            settings.isCapsuleVisible = true
+        }
+        if !isVisible {
+            show()
+        }
+
+        contentModel.expandedMode = .settings
+        if transitionState.isExpansionActive,
+           transitionState.currentShape == .expanded {
+            contentModel.isExpandedContainer = true
+            contentModel.isExpanded = true
+            orderFrontRegardless()
+            return
+        }
+
+        _ = transitionState.activateExpansion(for: settings.capsuleExpansionTrigger)
+        contentModel.isExpanded = false
+        contentModel.isExpandedContainer = true
+        if settings.capsuleExpansionTrigger == .click {
+            startOutsideClickMonitoring()
+        }
+        transition(to: .expanded)
+        orderFrontRegardless()
+    }
+
     func hide() {
         isDragging = false
         isPressingForDrag = false
@@ -1280,7 +1307,7 @@ private enum DragResistance {
     static let threshold: CGFloat = 28
 }
 
-private extension NSScreen {
+extension NSScreen {
     var displayID: CGDirectDisplayID? {
         let key = NSDeviceDescriptionKey("NSScreenNumber")
         return (deviceDescription[key] as? NSNumber)?.uint32Value

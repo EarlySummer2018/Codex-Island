@@ -14,7 +14,7 @@ struct DesktopPetView: View {
 
             PixelPetView(
                 animationName: controller.animationName,
-                size: controller.petSize,
+                size: controller.petSize * controller.userScale,
                 form: evolutionStore.currentForm,
                 level: evolutionStore.level,
                 feedTrigger: evolutionStore.feedTrigger,

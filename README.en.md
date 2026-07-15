@@ -10,6 +10,10 @@ Codex Island is a macOS top-screen capsule and desktop pet for Codex Desktop. It
 - Runtime states for idle, running, waiting for input, ready for review, and errors, with activity details for reasoning, commands, file changes, web search, and reply generation.
 - Pet levels and evolution based on cumulative usage across all local Codex sessions.
 - Large and small capsule styles, desktop pet mode, long-press dragging, and per-display position persistence.
+- Idle roaming is deliberately infrequent: after moving, the pet plays its waiting animation for 20–40 seconds. Disabling Free Movement keeps it at its current position with state animations and in-place reactions.
+- Right-click the pet to open Codex, toggle Free Movement, open Custom Pets or Settings, or put the pet away.
+- The pet only receives pointer input near its visible body and level badge, so transparent window margins no longer block apps underneath.
+- Hover the desktop pet and drag its lightweight upper-right handle, or use the mouse wheel/trackpad, to resize the pet from `50%–200%` while keeping the level badge at a fixed size; pet size and position are restored after relaunch.
 - Ten-stage custom pets shared by the capsule, expanded panel, desktop pet, and roaming pet.
 - One-click app restart from Settings or the menu bar to reload custom pets.
 - A Rust sidecar that processes token and state metadata without forwarding prompts, user messages, or assistant response text.

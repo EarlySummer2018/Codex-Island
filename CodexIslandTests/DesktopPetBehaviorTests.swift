@@ -124,7 +124,313 @@ final class DesktopPetBehaviorTests: XCTestCase {
         XCTAssertEqual(CapsuleDisplayStyle.small.pillSize(desktopPetEnabled: true).width, 112)
     }
 
-    func testDesktopPetUsesLargerBodyWithoutScalingLevelBadge() {
+    @MainActor
+    func testFreeMovementSettingDefaultsToEnabledAndPersists() {
+        let defaults = makeIsolatedDefaults()
+        let initialStore = AppSettingsStore(defaults: defaults)
+
+        XCTAssertTrue(initialStore.isDesktopPetFreeMovementEnabled)
+        XCTAssertEqual(initialStore.desktopPetScale, 1, accuracy: 0.001)
+        initialStore.isDesktopPetFreeMovementEnabled = false
+        initialStore.desktopPetScale = 3
+
+        let restoredStore = AppSettingsStore(defaults: defaults)
+        XCTAssertFalse(restoredStore.isDesktopPetFreeMovementEnabled)
+        XCTAssertEqual(restoredStore.desktopPetScale, 2, accuracy: 0.001)
+        restoredStore.desktopPetScale = 0.1
+        XCTAssertEqual(restoredStore.desktopPetScale, 0.5, accuracy: 0.001)
+        XCTAssertEqual(restoredStore.text(.freeMovement), "自由运动")
+        restoredStore.language = .english
+        XCTAssertEqual(restoredStore.text(.freeMovement), "Free Movement")
+    }
+
+    func testDesktopPetPositionRoundTripsOnSameDisplay() {
+        let display = DesktopPetDisplayGeometry(
+            identifier: "display-main",
+            visibleFrame: CGRect(x: 100, y: 50, width: 1000, height: 700)
+        )
+        let frame = CGRect(x: 410, y: 230, width: 160, height: 180)
+        let saved = DesktopPetPositionGeometry.savedPosition(for: frame, on: display)
+        let restored = DesktopPetPositionGeometry.restoredOrigin(
+            from: saved,
+            windowSize: frame.size,
+            displays: [display]
+        )
+
+        XCTAssertEqual(restored?.x ?? 0, frame.minX, accuracy: 0.001)
+        XCTAssertEqual(restored?.y ?? 0, frame.minY, accuracy: 0.001)
+    }
+
+    func testDesktopPetPositionStoreUsesSavedPositionForFallbackDisplay() {
+        let defaults = makeIsolatedDefaults()
+        let store = DesktopPetPositionStore(defaults: defaults)
+        let left = DesktopPetDisplayGeometry(
+            identifier: "display-left",
+            visibleFrame: CGRect(x: -1000, y: 0, width: 1000, height: 800)
+        )
+        let right = DesktopPetDisplayGeometry(
+            identifier: "display-right",
+            visibleFrame: CGRect(x: 0, y: 0, width: 800, height: 600)
+        )
+        let leftFrame = CGRect(x: -920, y: 90, width: 160, height: 180)
+        let rightFrame = CGRect(x: 520, y: 320, width: 160, height: 180)
+        store.save(windowFrame: leftFrame, on: left)
+        store.save(windowFrame: rightFrame, on: right)
+
+        let restoredOnRight = store.restoredOrigin(
+            windowSize: rightFrame.size,
+            displays: [left, right]
+        )
+        XCTAssertEqual(restoredOnRight?.x ?? 0, rightFrame.minX, accuracy: 0.001)
+        XCTAssertEqual(restoredOnRight?.y ?? 0, rightFrame.minY, accuracy: 0.001)
+
+        let restoredAfterRightDisplayRemoval = store.restoredOrigin(
+            windowSize: leftFrame.size,
+            displays: [left]
+        )
+        XCTAssertEqual(restoredAfterRightDisplayRemoval?.x ?? 0, leftFrame.minX, accuracy: 0.001)
+        XCTAssertEqual(restoredAfterRightDisplayRemoval?.y ?? 0, leftFrame.minY, accuracy: 0.001)
+    }
+
+    func testDesktopPetInteractionRegionTracksOpaquePetBounds() {
+        let narrowPet = CGRect(x: 0.38, y: 0.08, width: 0.24, height: 0.82)
+        let layout = DesktopPetInteractionGeometry.layout(
+            userScale: 1,
+            level: 11,
+            normalizedOpaqueBounds: narrowPet
+        )
+        let compactLayout = DesktopPetInteractionGeometry.layout(
+            userScale: 1,
+            presentationScale: DesktopPetMetrics.capsulePresentationScale,
+            level: 11,
+            normalizedOpaqueBounds: narrowPet
+        )
+
+        XCTAssertLessThan(layout.interactionBounds.width, DesktopPetMetrics.windowSize.width * 0.6)
+        XCTAssertLessThan(layout.interactionBounds.height, DesktopPetMetrics.windowSize.height)
+        XCTAssertTrue(layout.interactionBounds.contains(layout.contentBounds))
+        XCTAssertLessThan(compactLayout.interactionBounds.width, layout.interactionBounds.width)
+        XCTAssertLessThan(compactLayout.interactionBounds.height, layout.interactionBounds.height)
+    }
+
+    func testDesktopPetScaleKeepsLevelBadgeSizeFixed() {
+        let opaqueBounds = CGRect(x: 0.3, y: 0.08, width: 0.4, height: 0.82)
+        let small = DesktopPetInteractionGeometry.layout(
+            userScale: 0.5,
+            level: 11,
+            normalizedOpaqueBounds: opaqueBounds
+        )
+        let regular = DesktopPetInteractionGeometry.layout(
+            userScale: 1,
+            level: 11,
+            normalizedOpaqueBounds: opaqueBounds
+        )
+        let large = DesktopPetInteractionGeometry.layout(
+            userScale: 2,
+            level: 11,
+            normalizedOpaqueBounds: opaqueBounds
+        )
+
+        XCTAssertEqual(small.levelBadgeBounds.size, regular.levelBadgeBounds.size)
+        XCTAssertEqual(large.levelBadgeBounds.size, regular.levelBadgeBounds.size)
+        XCTAssertEqual(
+            small.levelBadgeBounds.size,
+            PixelLevelBadgeRenderer.canvasSize(for: 11)
+        )
+        XCTAssertEqual(
+            large.petBounds.width,
+            small.petBounds.width * 4,
+            accuracy: 0.001
+        )
+        XCTAssertTrue(small.contentBounds.contains(small.levelBadgeBounds))
+        XCTAssertTrue(large.contentBounds.contains(large.levelBadgeBounds))
+        XCTAssertTrue(small.interactionBounds.contains(small.contentBounds))
+        XCTAssertTrue(large.interactionBounds.contains(large.contentBounds))
+    }
+
+    func testDesktopPetResizeHandlePointsTowardUpperRightAndLowerLeft() {
+        XCTAssertEqual(
+            DesktopPetInteractionGeometry.resizeHandleSymbolName,
+            "arrow.up.right.and.arrow.down.left"
+        )
+    }
+
+    func testOpaqueBoundsIgnoreTransparentMarginsAndLowAlphaPixels() throws {
+        let image = try makeAlphaTestImage(
+            width: 20,
+            height: 10,
+            opaqueRect: CGRect(x: 5, y: 2, width: 6, height: 4)
+        )
+        let bounds = try XCTUnwrap(PetAtlasValidator.normalizedOpaqueBounds(in: image))
+
+        XCTAssertEqual(bounds.minX, 0.25, accuracy: 0.001)
+        XCTAssertEqual(bounds.minY, 0.2, accuracy: 0.001)
+        XCTAssertEqual(bounds.width, 0.3, accuracy: 0.001)
+        XCTAssertEqual(bounds.height, 0.4, accuracy: 0.001)
+    }
+
+    func testDesktopPetResizeScaleClampsAndPreservesFootAnchor() {
+        XCTAssertEqual(DesktopPetScale.clamped(0.1), 0.5, accuracy: 0.001)
+        XCTAssertEqual(DesktopPetScale.clamped(3), 2, accuracy: 0.001)
+        XCTAssertEqual(
+            DesktopPetInteractionGeometry.scale(
+                startScale: 1,
+                startVector: CGVector(dx: 40, dy: 80),
+                currentVector: CGVector(dx: 80, dy: 160)
+            ),
+            2,
+            accuracy: 0.001
+        )
+
+        let anchor = CGPoint(x: 720, y: 420)
+        for index in 0..<50 {
+            let scale: CGFloat = index.isMultiple(of: 2) ? 0.5 : 2
+            let layout = DesktopPetInteractionGeometry.layout(
+                userScale: scale,
+                level: 100,
+                normalizedOpaqueBounds: CGRect(x: 0.3, y: 0.1, width: 0.4, height: 0.82)
+            )
+            let origin = CGPoint(
+                x: anchor.x - layout.petFootAnchor.x,
+                y: anchor.y - layout.petFootAnchor.y
+            )
+            XCTAssertEqual(origin.x + layout.petFootAnchor.x, anchor.x, accuracy: 0.001)
+            XCTAssertEqual(origin.y + layout.petFootAnchor.y, anchor.y, accuracy: 0.001)
+        }
+    }
+
+    func testDesktopPetScrollScalingUsesWheelStepsAndPreciseDeltas() {
+        XCTAssertEqual(DesktopPetScrollScaling.wheelStep, 0.05, accuracy: 0.001)
+        XCTAssertEqual(DesktopPetScrollScaling.finishDelay, 0.25, accuracy: 0.001)
+        XCTAssertTrue(
+            DesktopPetScrollScaling.acceptsEvent(
+                deltaY: 1,
+                hasMomentum: false,
+                phaseEnded: false
+            )
+        )
+        XCTAssertTrue(
+            DesktopPetScrollScaling.acceptsEvent(
+                deltaY: 0,
+                hasMomentum: false,
+                phaseEnded: true
+            )
+        )
+        XCTAssertFalse(
+            DesktopPetScrollScaling.acceptsEvent(
+                deltaY: 2,
+                hasMomentum: true,
+                phaseEnded: false
+            )
+        )
+        XCTAssertEqual(
+            DesktopPetScrollScaling.scale(from: 1, deltaY: 1, isPrecise: false),
+            1.05,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            DesktopPetScrollScaling.scale(from: 1, deltaY: -1, isPrecise: false),
+            0.95,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            DesktopPetScrollScaling.scale(from: 1, deltaY: 1, isPrecise: true),
+            exp(0.01),
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            DesktopPetScrollScaling.scale(from: 1.99, deltaY: 1, isPrecise: false),
+            2,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            DesktopPetScrollScaling.scale(from: 0.51, deltaY: -1, isPrecise: false),
+            0.5,
+            accuracy: 0.001
+        )
+    }
+
+    func testScrollResizeCyclesKeepPetFootAnchorStable() {
+        let anchor = CGPoint(x: 720, y: 420)
+        var scale: CGFloat = 1
+
+        for index in 0..<50 {
+            scale = DesktopPetScrollScaling.scale(
+                from: scale,
+                deltaY: index.isMultiple(of: 2) ? 1 : -1,
+                isPrecise: false
+            )
+            let layout = DesktopPetInteractionGeometry.layout(
+                userScale: scale,
+                level: 11,
+                normalizedOpaqueBounds: CGRect(x: 0.3, y: 0.1, width: 0.4, height: 0.82)
+            )
+            let origin = CGPoint(
+                x: anchor.x - layout.petFootAnchor.x,
+                y: anchor.y - layout.petFootAnchor.y
+            )
+            XCTAssertEqual(origin.x + layout.petFootAnchor.x, anchor.x, accuracy: 0.001)
+            XCTAssertEqual(origin.y + layout.petFootAnchor.y, anchor.y, accuracy: 0.001)
+        }
+    }
+
+    func testExpandedTokenCardsPlaceOutputImmediatelyAfterInput() {
+        XCTAssertEqual(
+            ExpandedTokenCardMetric.displayOrder,
+            [.input, .output, .cached, .cacheRate]
+        )
+    }
+
+    @MainActor
+    func testDesktopPetUsesSeparateSmallerMouseInteractionWindow() async {
+        let panel = DesktopPetPanel(controller: .shared)
+        let layout = DesktopPetInteractionGeometry.layout(
+            userScale: 1,
+            level: 11,
+            normalizedOpaqueBounds: CGRect(x: 0.4, y: 0.08, width: 0.2, height: 0.82)
+        )
+        panel.setFrame(CGRect(x: 300, y: 240, width: 160, height: 180), display: false)
+        panel.updateInteractionRegion(
+            layout,
+            showsResizeHandle: true,
+            resizeToolTip: "Drag to resize pet"
+        )
+        await Task.yield()
+
+        guard let interactionPanel = panel.childWindows?.first else {
+            XCTFail("Expected a dedicated desktop pet interaction window")
+            panel.orderOut(nil)
+            return
+        }
+        XCTAssertTrue(panel.ignoresMouseEvents)
+        XCTAssertFalse(interactionPanel.ignoresMouseEvents)
+        XCTAssertLessThan(interactionPanel.frame.width, panel.frame.width)
+        XCTAssertLessThan(interactionPanel.frame.height, panel.frame.height)
+        panel.orderOut(nil)
+    }
+
+    func testDesktopPetContextMenuModelIsBilingualAndOrdered() {
+        let chinese = DesktopPetContextMenuModel.items(
+            language: .chinese,
+            isFreeMovementEnabled: true
+        )
+        let english = DesktopPetContextMenuModel.items(
+            language: .english,
+            isFreeMovementEnabled: false
+        )
+
+        XCTAssertEqual(
+            chinese.compactMap(\.action),
+            [.openCodex, .toggleFreeMovement, .openCustomPets, .openSettings, .putAwayPet]
+        )
+        XCTAssertEqual(chinese[2].title, "自由运动")
+        XCTAssertTrue(chinese[2].isChecked)
+        XCTAssertEqual(english[2].title, "Free Movement")
+        XCTAssertFalse(english[2].isChecked)
+        XCTAssertEqual(english.last?.title, "Put Away Pet")
+    }
+
+    func testDesktopPetBaseMetricsRemainStableForUserScaling() {
         XCTAssertEqual(DesktopPetMetrics.petSize, 104)
         XCTAssertEqual(DesktopPetMetrics.windowSize.width, 160)
         XCTAssertEqual(DesktopPetMetrics.windowSize.height, 180)
@@ -885,6 +1191,18 @@ final class DesktopPetBehaviorTests: XCTestCase {
         XCTAssertEqual(PetAnimation.outputBurst.petAtlasState(facingLeft: nil), .runningRight)
         XCTAssertEqual(PetAnimation.outputBurst.petAtlasState(facingLeft: false), .runningRight)
         XCTAssertEqual(PetAnimation.idleBreathe.petAtlasState(facingLeft: true), .idle)
+        XCTAssertEqual(PetAnimation.idleWait.petAtlasState(facingLeft: true), .waiting)
+    }
+
+    func testIdleRoamingWaitsTwentyToFortySecondsOnWaitingFrames() {
+        XCTAssertEqual(DesktopPetRoamingPolicy.idleRestDelay(randomUnit: 0), 20, accuracy: 0.001)
+        XCTAssertEqual(DesktopPetRoamingPolicy.idleRestDelay(randomUnit: 0.5), 30, accuracy: 0.001)
+        XCTAssertEqual(DesktopPetRoamingPolicy.idleRestDelay(randomUnit: 1), 40, accuracy: 0.001)
+        XCTAssertEqual(DesktopPetRoamingPolicy.idleRestDelay(randomUnit: -1), 20, accuracy: 0.001)
+        XCTAssertEqual(DesktopPetRoamingPolicy.idleRestDelay(randomUnit: 2), 40, accuracy: 0.001)
+        XCTAssertEqual(PetAnimation.idleWait.fps, 4)
+        XCTAssertNil(PetAnimation.idleWait.loops)
+        XCTAssertFalse(PetAnimation.idleWait.isIdleLoop)
     }
 
     func testPetFrameIndexWrapsToAtlasColumns() {
@@ -935,6 +1253,7 @@ final class DesktopPetBehaviorTests: XCTestCase {
         XCTAssertEqual(PetAnimation.talkWalk.fps, 6)
         XCTAssertEqual(PetAnimation.outputBurst.fps, 6)
         XCTAssertLessThanOrEqual(PetAnimation.idleBreathe.fps, 5)
+        XCTAssertEqual(PetAnimation.idleWait.fps, 4)
         XCTAssertLessThanOrEqual(PetAnimation.awaitJump.fps, 7)
     }
 
@@ -1199,6 +1518,41 @@ final class DesktopPetBehaviorTests: XCTestCase {
         let dx = lhs.x - rhs.x
         let dy = lhs.y - rhs.y
         return sqrt(dx * dx + dy * dy)
+    }
+
+    private func makeIsolatedDefaults() -> UserDefaults {
+        let suiteName = "CodexIsland.DesktopPetTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        addTeardownBlock {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        return defaults
+    }
+
+    private func makeAlphaTestImage(
+        width: Int,
+        height: Int,
+        opaqueRect: CGRect
+    ) throws -> CGImage {
+        guard let context = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: width * 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            throw NSError(domain: "DesktopPetBehaviorTests", code: 1)
+        }
+        context.clear(CGRect(x: 0, y: 0, width: width, height: height))
+        context.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
+        context.fill(opaqueRect)
+        guard let image = context.makeImage() else {
+            throw NSError(domain: "DesktopPetBehaviorTests", code: 2)
+        }
+        return image
     }
 
     private func makeBundledPetRepository() -> PetAtlasRepository {

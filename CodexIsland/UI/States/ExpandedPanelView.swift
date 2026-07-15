@@ -226,20 +226,41 @@ struct ExpandedPanelView: View {
 
     private var tokenGrid: some View {
         HStack(spacing: 8) {
-            TokenCard(title: settings.text(.input), value: store.globalTotalInput, color: TokenColors.input)
+            ForEach(ExpandedTokenCardMetric.displayOrder, id: \.self) { metric in
+                tokenCard(for: metric)
+            }
+        }
+        .frame(height: 56)
+    }
+
+    @ViewBuilder
+    private func tokenCard(for metric: ExpandedTokenCardMetric) -> some View {
+        switch metric {
+        case .input:
+            TokenCard(
+                title: settings.text(.input),
+                value: store.globalTotalInput,
+                color: TokenColors.input
+            )
+        case .output:
+            TokenCard(
+                title: settings.text(.output),
+                value: store.globalTotalOutput,
+                color: TokenColors.output
+            )
+        case .cached:
             TokenCard(
                 title: settings.text(.cached),
                 value: store.globalTotalCachedInput,
                 color: TokenColors.cached
             )
+        case .cacheRate:
             TokenCard(
                 title: settings.text(.cacheRate),
                 text: store.globalCacheHitPercent,
                 color: TokenColors.uncached
             )
-            TokenCard(title: settings.text(.output), value: store.globalTotalOutput, color: TokenColors.output)
         }
-        .frame(height: 56)
     }
 
     private var footer: some View {
@@ -477,6 +498,20 @@ enum PanelPalette {
     static let text = Color.white.opacity(0.90)
     static let textMuted = Color.white.opacity(0.68)
     static let textDim = Color.white.opacity(0.50)
+}
+
+enum ExpandedTokenCardMetric: Hashable {
+    case input
+    case output
+    case cached
+    case cacheRate
+
+    static let displayOrder: [ExpandedTokenCardMetric] = [
+        .input,
+        .output,
+        .cached,
+        .cacheRate
+    ]
 }
 
 private struct MetricChip: View {

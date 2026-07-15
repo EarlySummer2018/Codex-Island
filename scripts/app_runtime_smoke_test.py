@@ -122,10 +122,12 @@ def window_y(bounds: str) -> float:
 def capsule_frame(pid: int) -> tuple[float, float, float, float]:
     script = f'''import CoreGraphics
 let pid: Int32 = {pid}
+let capsuleLayer = Int(CGWindowLevelForKey(.statusWindow)) + 1
 let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
 for window in windows where (window[kCGWindowOwnerPID as String] as? Int32) == pid {{
-    guard let bounds = window[kCGWindowBounds as String] as? [String: CGFloat],
-          let height = bounds["Height"], height < 100,
+    guard (window[kCGWindowLayer as String] as? Int) == capsuleLayer,
+          let bounds = window[kCGWindowBounds as String] as? [String: CGFloat],
+          let height = bounds["Height"], abs(height - 34) <= 1,
           let x = bounds["X"], let y = bounds["Y"], let width = bounds["Width"] else {{ continue }}
     print("\\(x),\\(y),\\(width),\\(height)")
 }}'''

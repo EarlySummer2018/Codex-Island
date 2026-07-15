@@ -2,6 +2,7 @@ import Foundation
 
 enum PetAnimation: String, Equatable {
     case idleBreathe = "idle_breathe"
+    case idleWait = "idle_wait"
     case idleStretch = "idle_stretch"
     case talkWalk = "talk_walk"
     case awaitJump = "await_jump"
@@ -16,7 +17,7 @@ enum PetAnimation: String, Equatable {
 
     var frameCount: Int {
         switch self {
-        case .idleBreathe:
+        case .idleBreathe, .idleWait:
             return 8
         case .idleStretch:
             return 12
@@ -54,6 +55,8 @@ enum PetAnimation: String, Equatable {
             return 7
         case .dragHover:
             return 6
+        case .idleWait:
+            return 4
         case .idleBreathe:
             return 5
         default:
@@ -71,6 +74,7 @@ enum PetAnimation: String, Equatable {
              .landBounce:
             return 1
         case .idleBreathe,
+             .idleWait,
              .talkWalk,
              .awaitJump,
              .bubbleThink,
@@ -118,7 +122,18 @@ enum PetAnimation: String, Equatable {
         switch self {
         case .idleBreathe:
             return true
-        default:
+        case .idleWait,
+             .idleStretch,
+             .talkWalk,
+             .awaitJump,
+             .errorFall,
+             .eatToken,
+             .happyBounce,
+             .bubbleThink,
+             .outputBurst,
+             .startledHop,
+             .dragHover,
+             .landBounce:
             return false
         }
     }
@@ -177,6 +192,8 @@ extension PetAnimation {
         switch self {
         case .idleBreathe:
             return .idle
+        case .idleWait:
+            return .waiting
         case .talkWalk, .outputBurst:
             return .running
         case .idleStretch, .happyBounce:

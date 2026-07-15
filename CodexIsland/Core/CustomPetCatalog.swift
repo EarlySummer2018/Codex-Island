@@ -313,6 +313,67 @@ enum PetAtlasValidator {
         return visible.indices.filter { visible[$0] }
     }
 
+    static func normalizedOpaqueBounds(
+        in image: CGImage,
+        alphaThreshold: UInt8 = 8
+    ) -> CGRect? {
+        let width = image.width
+        let height = image.height
+        guard width > 0, height > 0 else {
+            return nil
+        }
+
+        let bytesPerPixel = 4
+        let bytesPerRow = width * bytesPerPixel
+        var pixels = [UInt8](repeating: 0, count: bytesPerRow * height)
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue
+            | CGBitmapInfo.byteOrder32Big.rawValue
+        let didDraw = pixels.withUnsafeMutableBytes { buffer -> Bool in
+            guard let context = CGContext(
+                data: buffer.baseAddress,
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bytesPerRow: bytesPerRow,
+                space: colorSpace,
+                bitmapInfo: bitmapInfo
+            ) else {
+                return false
+            }
+            context.clear(CGRect(x: 0, y: 0, width: width, height: height))
+            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        guard didDraw else {
+            return nil
+        }
+
+        var minX = width
+        var minY = height
+        var maxX = -1
+        var maxY = -1
+        for y in 0..<height {
+            let rowOffset = y * bytesPerRow
+            for x in 0..<width where pixels[rowOffset + x * bytesPerPixel + 3] > alphaThreshold {
+                minX = min(minX, x)
+                minY = min(minY, y)
+                maxX = max(maxX, x)
+                maxY = max(maxY, y)
+            }
+        }
+        guard maxX >= minX, maxY >= minY else {
+            return nil
+        }
+
+        return CGRect(
+            x: CGFloat(minX) / CGFloat(width),
+            y: CGFloat(height - maxY - 1) / CGFloat(height),
+            width: CGFloat(maxX - minX + 1) / CGFloat(width),
+            height: CGFloat(maxY - minY + 1) / CGFloat(height)
+        )
+    }
+
     private static func expectedTypeIdentifier(for pathExtension: String) -> String? {
         switch pathExtension {
         case "png": return UTType.png.identifier
@@ -335,6 +396,11 @@ private enum CustomPetAtlasLoad {
     case invalid
 }
 
+private enum PetOpaqueBoundsLoad {
+    case bounds(CGRect)
+    case empty
+}
+
 private struct ResolvedPetFrameSource {
     let kind: PetAtlasSourceKind
     let sheet: CGImage
@@ -350,6 +416,7 @@ final class PetAtlasRepository {
     private var bundledSpriteSheet: CGImage?
     private var customLoads: [CustomPetStage: CustomPetAtlasLoad] = [:]
     private var frameCache: [PetFrameKey: NSImage] = [:]
+    private var opaqueBoundsCache: [PetForm: PetOpaqueBoundsLoad] = [:]
     private let frameCacheLimit = 180
 
     init(
@@ -368,6 +435,7 @@ final class PetAtlasRepository {
         catalog.reloadPackages()
         customLoads.removeAll(keepingCapacity: true)
         frameCache.removeAll(keepingCapacity: true)
+        opaqueBoundsCache.removeAll(keepingCapacity: true)
     }
 
     func image(for state: PetAtlasState, frame: Int, form: PetForm) -> NSImage? {
@@ -434,6 +502,42 @@ final class PetAtlasRepository {
         }
 
         return .bundled(form)
+    }
+
+    func normalizedOpaqueBounds(for form: PetForm) -> CGRect? {
+        if let cached = opaqueBoundsCache[form] {
+            switch cached {
+            case .bounds(let bounds): return bounds
+            case .empty: return nil
+            }
+        }
+
+        var combinedBounds: CGRect?
+        for state in PetAtlasState.allCases {
+            guard let source = resolvedFrameSource(for: state, form: form) else {
+                continue
+            }
+            for column in source.columns {
+                let cropRect = CGRect(
+                    x: column * PetAtlasSpec.cellWidth,
+                    y: state.row * PetAtlasSpec.cellHeight,
+                    width: PetAtlasSpec.cellWidth,
+                    height: PetAtlasSpec.cellHeight
+                )
+                guard let frame = source.sheet.cropping(to: cropRect),
+                      let frameBounds = PetAtlasValidator.normalizedOpaqueBounds(in: frame) else {
+                    continue
+                }
+                combinedBounds = combinedBounds?.union(frameBounds) ?? frameBounds
+            }
+        }
+
+        if let combinedBounds {
+            opaqueBoundsCache[form] = .bounds(combinedBounds)
+        } else {
+            opaqueBoundsCache[form] = .empty
+        }
+        return combinedBounds
     }
 
     private func resolvedFrameSource(

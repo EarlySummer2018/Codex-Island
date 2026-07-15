@@ -267,6 +267,47 @@ final class CustomPetCatalogTests: XCTestCase {
         XCTAssertEqual(repository.frameCount(for: .running, form: .original), 6)
     }
 
+    func testRepositoryCombinesOpaqueBoundsAcrossFramesAndRefreshesItsCache() throws {
+        let root = makeTemporaryRoot()
+        let catalog = CustomPetCatalog(rootDirectory: root)
+        try writeManifest(
+            manifest(path: "spritesheet.png"),
+            stage: .stage1,
+            catalog: catalog
+        )
+        let initialAtlas = try makeAtlas(
+            filledRects: [
+                (.idle, 0, CGRect(x: 16, y: 24, width: 20, height: 30)),
+                (.running, 1, CGRect(x: 120, y: 140, width: 28, height: 36))
+            ]
+        )
+        let spritesheetURL = catalog.directory(for: .stage1)
+            .appendingPathComponent("spritesheet.png")
+        try pngData(from: initialAtlas).write(to: spritesheetURL)
+
+        let repository = PetAtlasRepository(catalog: CustomPetCatalog(rootDirectory: root))
+        let initialBounds = try XCTUnwrap(repository.normalizedOpaqueBounds(for: .original))
+        XCTAssertLessThan(initialBounds.minX, 0.1)
+        XCTAssertGreaterThan(initialBounds.maxX, 0.7)
+        XCTAssertLessThan(initialBounds.minY, 0.2)
+        XCTAssertGreaterThan(initialBounds.maxY, 0.8)
+
+        let replacementAtlas = try makeAtlas(
+            filledRects: PetAtlasState.allCases.map {
+                ($0, 0, CGRect(x: 80, y: 90, width: 20, height: 20))
+            }
+        )
+        try pngData(from: replacementAtlas).write(to: spritesheetURL)
+        XCTAssertEqual(repository.normalizedOpaqueBounds(for: .original), initialBounds)
+
+        repository.reloadCustomPets()
+        let refreshedBounds = try XCTUnwrap(repository.normalizedOpaqueBounds(for: .original))
+        XCTAssertGreaterThan(refreshedBounds.minX, 0.4)
+        XCTAssertLessThan(refreshedBounds.maxX, 0.6)
+        XCTAssertGreaterThan(refreshedBounds.minY, 0.4)
+        XCTAssertLessThan(refreshedBounds.maxY, 0.6)
+    }
+
     func testLevelElevenUsesFirstStageWhenSecondStageIsMissing() throws {
         let root = makeTemporaryRoot()
         let catalog = CustomPetCatalog(rootDirectory: root)
@@ -454,7 +495,8 @@ final class CustomPetCatalogTests: XCTestCase {
         width: Int = PetAtlasSpec.atlasWidth,
         height: Int? = nil,
         rowCount: Int = PetAtlasSpec.rows,
-        filledCells: [(PetAtlasState, Int)] = []
+        filledCells: [(PetAtlasState, Int)] = [],
+        filledRects: [(PetAtlasState, Int, CGRect)] = []
     ) throws -> CGImage {
         let resolvedHeight = height ?? rowCount * PetAtlasSpec.cellHeight
         guard let context = CGContext(
@@ -480,6 +522,17 @@ final class CustomPetCatalogTests: XCTestCase {
                 column: filledCell.1,
                 atlasHeight: resolvedHeight,
                 context: context
+            )
+        }
+        for filledRect in filledRects {
+            context.fill(
+                CGRect(
+                    x: CGFloat(filledRect.1 * PetAtlasSpec.cellWidth) + filledRect.2.minX,
+                    y: CGFloat(resolvedHeight - (filledRect.0.row + 1) * PetAtlasSpec.cellHeight)
+                        + filledRect.2.minY,
+                    width: filledRect.2.width,
+                    height: filledRect.2.height
+                )
             )
         }
 
