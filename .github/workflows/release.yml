@@ -9,7 +9,7 @@ on:
       tag:
         description: 要创建或更新的版本 tag
         required: true
-        default: v1.2.1
+        default: v1.2.2
 
 permissions:
   contents: write

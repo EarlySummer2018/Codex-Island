@@ -123,8 +123,8 @@ sidecar 优先消费 Codex App-Server 事件，必要时回退到脱敏后的本
 发布版本以 `project.yml` 中的 `MARKETING_VERSION` 为准。版本 tag 必须与它一致：
 
 ```bash
-git tag v1.2.1
-git push origin v1.2.1
+git tag v1.2.2
+git push origin v1.2.2
 ```
 
 GitHub Actions 会验证版本、运行 Rust 与 Swift 测试、构建 universal 与 x86_64 macOS 应用，并生成 `.zip`、`.dmg`、`.pkg`、SHA-256 校验文件和中文 Release Notes。

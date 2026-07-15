@@ -118,8 +118,8 @@ The sidecar prefers Codex App-Server events and falls back to sanitized local JS
 The release version comes from `MARKETING_VERSION` in `project.yml`. The version tag must match it:
 
 ```bash
-git tag v1.2.0
-git push origin v1.2.0
+git tag v1.2.2
+git push origin v1.2.2
 ```
 
 GitHub Actions validates the version, runs Rust and Swift tests, builds universal and x86_64 macOS applications, and publishes `.zip`, `.dmg`, `.pkg`, SHA-256 checksums, and Chinese release notes.
